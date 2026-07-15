@@ -1,6 +1,9 @@
 {
   "scripts": {
     "build": "mkdir -p public && cp frontend/index.html public/index.html",
-    "start": "node frontend/server.mjs"
+    "start": "python servers/flask_server.py",
+    "start:node": "node servers/node_server.mjs",
+    "celery:worker": "celery -A backend.celery_app worker --loglevel=info",
+    "redis:start": "brew services start redis"
   }
 }

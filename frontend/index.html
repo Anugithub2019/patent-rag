@@ -792,8 +792,11 @@
             return `<span class="similarity-badge ${cssClass}">${percent.toFixed(1)}%</span>`;
         }
 
-        async function searchPriorArt(text) {
-            const response = await fetch('/api/search', {
+        let pollTimer = null;
+        let currentJobId = null;
+
+        async function submitQuery(text) {
+            const response = await fetch('/api/query', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ text })
@@ -804,7 +807,56 @@
                 throw new Error(errorData.error || `Server returned ${response.status}`);
             }
 
-            return response.json();
+            const data = await response.json();
+            return data.job_id;
+        }
+
+        function pollResult(jobId, onComplete, onError) {
+            currentJobId = jobId;
+            let attempts = 0;
+            const maxAttempts = 180; // 180 * 2s = 6 minutes max
+
+            pollTimer = setInterval(async () => {
+                attempts++;
+                try {
+                    const resp = await fetch(`/api/result/${jobId}`);
+                    if (!resp.ok) {
+                        if (resp.status === 404) {
+                            onError(new Error('Job not found'));
+                            clearInterval(pollTimer);
+                            return;
+                        }
+                        throw new Error(`Poll returned ${resp.status}`);
+                    }
+
+                    const data = await resp.json();
+
+                    if (data.status === 'complete') {
+                        clearInterval(pollTimer);
+                        onComplete(data.data);
+                    } else if (data.status === 'failed') {
+                        clearInterval(pollTimer);
+                        onError(new Error(data.error || 'Query processing failed'));
+                    }
+                    // status === 'pending' → keep polling
+
+                    if (attempts >= maxAttempts) {
+                        clearInterval(pollTimer);
+                        onError(new Error('Query timed out after 6 minutes'));
+                    }
+                } catch (error) {
+                    clearInterval(pollTimer);
+                    onError(error);
+                }
+            }, 2000);
+        }
+
+        function cancelPolling() {
+            if (pollTimer) {
+                clearInterval(pollTimer);
+                pollTimer = null;
+            }
+            currentJobId = null;
         }
 
         function extractResults(data) {
@@ -1024,17 +1076,26 @@
             searchBtn.disabled = true;
             searchBtn.setAttribute('aria-busy', 'true');
             hideStatus();
+            cancelPolling();
             showReportShell();
 
             try {
-                const data = await searchPriorArt(text);
-                renderReport(data);
+                const jobId = await submitQuery(text);
+                pollResult(jobId, (data) => {
+                    renderReport(data);
+                    searchBtn.removeAttribute('aria-busy');
+                    updateComposerState();
+                }, (error) => {
+                    renderReportError(error);
+                    searchBtn.removeAttribute('aria-busy');
+                    updateComposerState();
+                    console.error('Search error:', error);
+                });
             } catch (error) {
                 renderReportError(error);
-                console.error('Search error:', error);
-            } finally {
                 searchBtn.removeAttribute('aria-busy');
                 updateComposerState();
+                console.error('Submit error:', error);
             }
         });
 
@@ -1044,11 +1105,15 @@
             fileName.classList.add('hidden');
             fileInput.value = '';
             hideStatus();
+            cancelPolling();
             updateComposerState();
             documentText.focus();
         });
 
-        newSearchBtn.addEventListener('click', resetToSearch);
+        newSearchBtn.addEventListener('click', () => {
+            cancelPolling();
+            resetToSearch();
+        });
 
         updateComposerState();
 

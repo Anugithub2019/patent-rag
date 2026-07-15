@@ -3,12 +3,17 @@ import { readFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.dirname(__dirname);
 const port = Number(process.env.PORT || 3000);
 const baseUrl = 'https://kg-api.hashtag.ai/patentrag';
+
+// In-memory job store for async query support
+const jobs = new Map();
+const JOB_TTL = 3600_000; // 1 hour
 
 loadDotEnv(path.join(rootDir, '.env'));
 loadDotEnv(path.join(__dirname, '.env'));
@@ -96,13 +101,43 @@ function processQueryResponse(responseData) {
     };
 }
 
-async function handleSearch(req, res) {
+async function fetchFromHashtag(documentText) {
     const apiKey = process.env.HASHTAG_API_KEY;
     if (!apiKey) {
-        sendJson(res, 500, { error: 'HASHTAG_API_KEY not found in environment variables' });
-        return;
+        throw new Error('HASHTAG_API_KEY not found in environment variables');
     }
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120000);
+
+    try {
+        const response = await fetch(`${baseUrl}/query`, {
+            method: 'POST',
+            headers: {
+                'x-api-key': apiKey,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ question: documentText }),
+            signal: controller.signal
+        });
+
+        const responseText = await response.text();
+        if (!response.ok) {
+            throw new Error(`Backend API returned status ${response.status}: ${responseText}`);
+        }
+
+        return processQueryResponse(JSON.parse(responseText));
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            throw new Error('Request to backend API timed out');
+        }
+        throw new Error(`Could not connect to backend API: ${error.message}`);
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+async function handleSubmitQuery(req, res) {
     let data;
     try {
         data = await readJsonBody(req);
@@ -116,39 +151,62 @@ async function handleSearch(req, res) {
         return;
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120000);
+    const jobId = crypto.randomUUID();
+    const job = { status: 'pending', createdAt: Date.now() };
+    jobs.set(jobId, job);
 
-    try {
-        const response = await fetch(`${baseUrl}/query`, {
-            method: 'POST',
-            headers: {
-                'x-api-key': apiKey,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ question: data.text }),
-            signal: controller.signal
+    // Kick off the async query
+    fetchFromHashtag(data.text)
+        .then((parsed) => {
+            job.status = 'complete';
+            job.data = parsed;
+        })
+        .catch((error) => {
+            job.status = 'failed';
+            job.error = error.message;
         });
 
-        const responseText = await response.text();
-        if (!response.ok) {
-            sendJson(res, response.status, {
-                error: `Backend API returned status ${response.status}`,
-                detail: responseText
-            });
-            return;
-        }
+    // Clean up old jobs periodically
+    setTimeout(() => jobs.delete(jobId), JOB_TTL);
 
-        const parsed = processQueryResponse(JSON.parse(responseText));
+    sendJson(res, 202, { job_id: jobId });
+}
+
+function handleGetResult(req, res, jobId) {
+    const job = jobs.get(jobId);
+    if (!job) {
+        sendJson(res, 404, { error: 'Job not found' });
+        return;
+    }
+
+    if (job.status === 'complete') {
+        sendJson(res, 200, { status: 'complete', data: job.data });
+    } else if (job.status === 'failed') {
+        sendJson(res, 200, { status: 'failed', error: job.error });
+    } else {
+        sendJson(res, 200, { status: 'pending' });
+    }
+}
+
+async function handleSearch(req, res) {
+    let data;
+    try {
+        data = await readJsonBody(req);
+    } catch {
+        sendJson(res, 400, { error: 'Invalid JSON request body' });
+        return;
+    }
+
+    if (!data || typeof data.text !== 'string') {
+        sendJson(res, 400, { error: "Missing 'text' field in request body" });
+        return;
+    }
+
+    try {
+        const parsed = await fetchFromHashtag(data.text);
         sendJson(res, 200, parsed);
     } catch (error) {
-        if (error.name === 'AbortError') {
-            sendJson(res, 504, { error: 'Request to backend API timed out' });
-            return;
-        }
-        sendJson(res, 502, { error: `Could not connect to backend API: ${error.message}` });
-    } finally {
-        clearTimeout(timeout);
+        sendJson(res, 502, { error: error.message });
     }
 }
 
@@ -156,18 +214,34 @@ const server = createServer(async (req, res) => {
     try {
         const url = new URL(req.url, `http://${req.headers.host}`);
 
+        // Serve frontend HTML
         if (req.method === 'GET' && url.pathname === '/') {
-            await sendFile(res, path.join(__dirname, 'index.html'), 'text/html; charset=utf-8');
+            await sendFile(res, path.join(__dirname, '..', 'frontend', 'index.html'), 'text/html; charset=utf-8');
             return;
         }
 
+        // Health check
         if (req.method === 'GET' && url.pathname === '/api/health') {
             sendJson(res, 200, { status: 'ok' });
             return;
         }
 
+        // Legacy synchronous search
         if (req.method === 'POST' && url.pathname === '/api/search') {
             await handleSearch(req, res);
+            return;
+        }
+
+        // Async query submission (frontend uses this)
+        if (req.method === 'POST' && url.pathname === '/api/query') {
+            await handleSubmitQuery(req, res);
+            return;
+        }
+
+        // Poll for job result (frontend uses this)
+        const resultMatch = url.pathname.match(/^\/api\/result\/([a-f0-9-]+)$/i);
+        if (req.method === 'GET' && resultMatch) {
+            handleGetResult(req, res, resultMatch[1]);
             return;
         }
 

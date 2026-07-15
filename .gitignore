@@ -5,6 +5,9 @@ patents_50/
 *.xml
 *.txt
 
+# ===== API =====
+.env
+
 # ===== Python cache =====
 __pycache__/
 *.pyc
@@ -14,3 +17,9 @@ __pycache__/
 
 # ===== Build output =====
 public/
+
+# ===== Runtime data files =====
+upload_records.db
+
+# ===== Test =====
+tests/
