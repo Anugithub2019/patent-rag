@@ -2,7 +2,8 @@ import sqlite3
 import os
 import time
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "upload_records.db")
+# Database lives in the project root, not inside backend/
+DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "upload_records.db")
 
 
 def get_connection():

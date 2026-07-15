@@ -3,8 +3,8 @@ import sys
 import hashlib
 import time
 import requests
-from config import API_KEY, BASE_URL
-import db
+from backend.config import API_KEY, BASE_URL
+from backend import db
 
 INPUT_DIR = "patents_5"
 
