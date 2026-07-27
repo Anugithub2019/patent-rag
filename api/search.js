@@ -1,5 +1,25 @@
 const baseUrl = 'https://kg-api.hashtag.ai/patentrag';
 
+const QUESTION_PREFIXES = [
+    "is there", "what", "find", "summarize",
+    "does", "can", "how", "why", "which", "who",
+    "list", "tell", "show", "give", "identify",
+    "describe", "explain", "compare", "evaluate",
+    "search", "retrieve", "do", "are", "will"
+];
+
+function buildQuery(userText) {
+    const text = String(userText).trim();
+    if (!text) return "";
+
+    const firstWord = text.split(/\s+/)[0].toLowerCase().replace(/[?,.;:!]+$/, "");
+    if (QUESTION_PREFIXES.includes(firstWord)) {
+        return text;
+    }
+
+    return `Is there any novelty in this technology? Technology draft: ${text}`;
+}
+
 function extractChunkDetails(responseData) {
     const chunkDetails = responseData?.info?.nodedetails?.chunkdetails;
     return Array.isArray(chunkDetails) ? chunkDetails : [];
@@ -28,10 +48,12 @@ function processQueryResponse(responseData) {
         })
         .sort((a, b) => b.similarity - a.similarity);
 
+    const contexts = responseData?.info?.metric_details?.contexts || '';
     return {
         results,
         answer: responseData?.answer || '',
         sources: extractSources(responseData),
+        contexts: String(contexts),
         total_results: results.length
     };
 }
@@ -58,13 +80,14 @@ module.exports = async function handler(req, res) {
     const timeout = setTimeout(() => controller.abort(), 120000);
 
     try {
+        const query = buildQuery(req.body.text);
         const response = await fetch(`${baseUrl}/query`, {
             method: 'POST',
             headers: {
                 'x-api-key': apiKey,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ question: req.body.text }),
+            body: JSON.stringify({ question: query }),
             signal: controller.signal
         });
 

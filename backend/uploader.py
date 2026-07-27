@@ -1,12 +1,17 @@
 import os
 import sys
+import json
 import hashlib
 import time
 import requests
 from backend.config import API_KEY, BASE_URL
 from backend import db
 
-INPUT_DIR = "patents_5"
+with open(os.path.join(os.path.dirname(__file__), "uploader_config.json")) as f:
+    _config = json.load(f)
+
+INPUT_DIR = _config["input_dir"]
+CORPUS_NAME = _config["corpus_name"]
 
 HEADERS = {
     "x-api-key": API_KEY,
@@ -33,7 +38,7 @@ def file_hash(path: str) -> str:
 
 
 # ---------- 2. post API ----------
-def upload(text, corpus="patentrag"):
+def upload(text, corpus=CORPUS_NAME):
     url = f"{BASE_URL}/process"
 
     payload = {
