@@ -1,6 +1,5 @@
 # ===== Data folders (IMPORTANT) =====
-patents/
-patents_50/
+data/
 *.zip
 *.xml
 *.txt

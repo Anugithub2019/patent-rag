@@ -9,17 +9,12 @@ Defines the background task that:
 """
 import json
 import hashlib
-import requests
 from backend.celery_app import app
-from backend.config import API_KEY, BASE_URL, CACHE_TTL
+from backend.config import CACHE_TTL
+from backend.hashtag_client import query_hashtag
 from backend.similarity import process_query_response
 import redis as redis_lib
 from backend.config import REDIS_URL
-
-HEADERS = {
-    "x-api-key": API_KEY,
-    "Content-Type": "application/json"
-}
 
 # Redis client for storing results
 redis_client = redis_lib.from_url(REDIS_URL)
@@ -58,26 +53,10 @@ def process_query(self, job_id: str, text: str):
     }))
 
     try:
-        # Call the Hashtag AI /query API
-        payload = {"question": text}
-        resp = requests.post(
-            f"{BASE_URL}/query",
-            headers=HEADERS,
-            json=payload,
-            timeout=120
-        )
-
-        if resp.status_code != 200:
-            error_msg = f"Backend API returned status {resp.status_code}: {resp.text}"
-            # Store the error
-            redis_client.setex(f"job:{job_id}", CACHE_TTL, json.dumps({
-                "status": "failed",
-                "error": error_msg
-            }))
-            raise Exception(error_msg)
+        # Call the Hashtag AI /query API via the dedicated client
+        raw_data = query_hashtag(text)
 
         # Parse the API response using the existing similarity module
-        raw_data = resp.json()
         parsed = process_query_response(raw_data)
 
         # Store the result in both the job-specific key and the cache
@@ -90,26 +69,24 @@ def process_query(self, job_id: str, text: str):
 
         return parsed
 
-    except requests.exceptions.Timeout:
-        error_msg = "Request to backend API timed out"
-        redis_client.setex(f"job:{job_id}", CACHE_TTL, json.dumps({
-            "status": "failed",
-            "error": error_msg
-        }))
-        raise Exception(error_msg)
-
-    except requests.exceptions.ConnectionError:
-        error_msg = "Could not connect to backend API"
-        redis_client.setex(f"job:{job_id}", CACHE_TTL, json.dumps({
-            "status": "failed",
-            "error": error_msg
-        }))
-        raise Exception(error_msg)
-
     except Exception as exc:
-        # For other errors, retry up to max_retries
+        # Check if this is a timeout/connection error from the requests library
+        # (raised by hashtag_client) and treat them as non-retriable failures
+        exc_name = type(exc).__name__
+        if exc_name == "Timeout":
+            error_msg = "Request to backend API timed out"
+        elif exc_name == "ConnectionError":
+            error_msg = "Could not connect to backend API"
+        else:
+            # For other errors, retry up to max_retries
+            redis_client.setex(f"job:{job_id}", CACHE_TTL, json.dumps({
+                "status": "failed",
+                "error": str(exc)
+            }))
+            raise self.retry(exc=exc)
+
         redis_client.setex(f"job:{job_id}", CACHE_TTL, json.dumps({
             "status": "failed",
-            "error": str(exc)
+            "error": error_msg
         }))
-        raise self.retry(exc=exc)
+        raise Exception(error_msg)

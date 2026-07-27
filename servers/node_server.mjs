@@ -65,6 +65,26 @@ async function readJsonBody(req) {
     return body ? JSON.parse(body) : {};
 }
 
+const QUESTION_PREFIXES = [
+    "is there", "what", "find", "summarize",
+    "does", "can", "how", "why", "which", "who",
+    "list", "tell", "show", "give", "identify",
+    "describe", "explain", "compare", "evaluate",
+    "search", "retrieve", "do", "are", "will"
+];
+
+function buildQuery(userText) {
+    const text = String(userText).trim();
+    if (!text) return "";
+
+    const firstWord = text.split(/\s+/)[0].toLowerCase().replace(/[?,.;:!]+$/, "");
+    if (QUESTION_PREFIXES.includes(firstWord)) {
+        return text;
+    }
+
+    return `Is there any novelty in this technology? Technology draft: ${text}`;
+}
+
 function extractChunkDetails(responseData) {
     const chunkDetails = responseData?.info?.nodedetails?.chunkdetails;
     return Array.isArray(chunkDetails) ? chunkDetails : [];
@@ -93,10 +113,12 @@ function processQueryResponse(responseData) {
         })
         .sort((a, b) => b.similarity - a.similarity);
 
+    const contexts = responseData?.info?.metric_details?.contexts || '';
     return {
         results,
         answer: responseData?.answer || '',
         sources: extractSources(responseData),
+        contexts: String(contexts),
         total_results: results.length
     };
 }
@@ -107,6 +129,7 @@ async function fetchFromHashtag(documentText) {
         throw new Error('HASHTAG_API_KEY not found in environment variables');
     }
 
+    const query = buildQuery(documentText);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 120000);
 
@@ -117,7 +140,7 @@ async function fetchFromHashtag(documentText) {
                 'x-api-key': apiKey,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ question: documentText }),
+            body: JSON.stringify({ question: query }),
             signal: controller.signal
         });
 

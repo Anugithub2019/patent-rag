@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 
 import os
+import json
 import xml.etree.ElementTree as ET
 
 INPUT_FILE = "ipa251211.xml"
-OUTPUT_DIR = "patents"
+OUTPUT_DIR = "patents_json"
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -131,26 +132,24 @@ for idx, part in enumerate(parts, start=1):
 
     claims = []
 
-    claims_elem = root.find(
-        ".//claims"
-    )
+    for claim in root.findall(
+        ".//claim"
+    ):
 
-    if claims_elem is not None:
+        claim_text_elem = claim.find(
+            "claim-text"
+        )
 
-        for elem in claims_elem.iter():
+        if claim_text_elem is not None:
 
-            if elem.tag.endswith(
-                "claim-text"
-            ):
+            text = " ".join(
+                t.strip()
+                for t in claim_text_elem.itertext()
+                if t.strip()
+            )
 
-                text = " ".join(
-                    t.strip()
-                    for t in elem.itertext()
-                    if t.strip()
-                )
-
-                if text:
-                    claims.append(text)
+            if text:
+                claims.append(text)
 
     # =====================
     # Inventors
@@ -247,77 +246,23 @@ for idx, part in enumerate(parts, start=1):
             pass
 
     # =====================
-    # Build Output
+    # Build JSON Output
     # =====================
 
-    output = []
-
-    output.append(
-        f"PATENT_ID:\n{patent_id}\n"
-    )
-
-    output.append(
-        f"TITLE:\n{title}\n"
-    )
-
-    output.append(
-        f"ABSTRACT:\n{abstract}\n"
-    )
-
-    output.append(
-        "INVENTORS:\n"
-        + "\n".join(inventors)
-        + "\n"
-    )
-
-    output.append(
-        "APPLICANTS:\n"
-        + "\n".join(applicants)
-        + "\n"
-    )
-
-    output.append(
-        "CPC:\n"
-        + "\n".join(
-            sorted(
-                set(cpcs)
-            )
-        )
-        + "\n"
-    )
-
-    claims_text = ""
-
-    for i, claim in enumerate(
-        claims,
-        start=1
-    ):
-
-        claims_text += (
-            f"\nClaim {i}\n"
-            f"{claim}\n"
-        )
-
-    output.append(
-        "CLAIMS:\n"
-        + claims_text
-        + "\n"
-    )
-
-    output.append(
-        "DESCRIPTION:\n"
-        + description
-    )
-
-    output_text = (
-        "\n"
-        + "=" * 80
-        + "\n"
-    ).join(output)
+    patent_data = {
+        "patent_id": patent_id,
+        "title": title,
+        "abstract": abstract,
+        "inventors": inventors,
+        "applicants": applicants,
+        "cpc": sorted(set(cpcs)),
+        "claims": claims,
+        "description": description,
+    }
 
     output_file = os.path.join(
         OUTPUT_DIR,
-        f"{patent_id}.txt"
+        f"{patent_id}.json"
     )
 
     with open(
@@ -326,7 +271,12 @@ for idx, part in enumerate(parts, start=1):
         encoding="utf-8"
     ) as f:
 
-        f.write(output_text)
+        json.dump(
+            patent_data,
+            f,
+            indent=2,
+            ensure_ascii=False
+        )
 
     if idx % 100 == 0:
 

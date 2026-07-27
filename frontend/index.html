@@ -950,6 +950,14 @@
             newSearchBtn.classList.remove('hidden');
         }
 
+        function toggleContext() {
+            const el = document.getElementById('contextContent');
+            const btn = document.getElementById('contextToggleBtn');
+            if (!el) return;
+            const hidden = el.classList.toggle('hidden');
+            btn.textContent = hidden ? 'Show retrieved context' : 'Hide retrieved context';
+        }
+
         function renderReport(data) {
             const results = extractResults(data);
             completeProgress();
@@ -997,8 +1005,20 @@
                 'Highest-similarity references are listed first for examiner-style review.'
             ];
 
+            // Build context section if contexts are available
+            const contexts = data && data.contexts ? data.contexts : '';
+            const contextSection = contexts ? `
+                <section class="report-block">
+                    <h3>Retrieved Context</h3>
+                    <h4>Patent text segments matched by the knowledge graph</h4>
+                    <button class="text-btn" id="contextToggleBtn" onclick="toggleContext()" style="margin-bottom:12px">Show retrieved context</button>
+                    <div id="contextContent" class="hidden" style="max-height:400px;overflow-y:auto;padding:12px;background:#f8f8f9;border-radius:8px;font-size:0.85rem;line-height:1.45;white-space:pre-wrap;word-break:break-word;">${escapeHtml(contexts)}</div>
+                </section>
+            ` : '';
+
             reportContent.innerHTML = `
                 ${featureBlocks}
+                ${contextSection}
                 <section class="report-block">
                     <h3>Novelty Found / No Novelty Found</h3>
                     <h4>List features that are novel</h4>

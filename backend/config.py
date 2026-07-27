@@ -4,7 +4,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 API_KEY = os.getenv("HASHTAG_API_KEY")
-BASE_URL = "https://kg-api.hashtag.ai/patentrag"
+HASHTAG_BASE_URL = "https://kg-api.hashtag.ai"
+HASH_TAG_PROJECT = "test_two_patents"
+BASE_URL = f"{HASHTAG_BASE_URL}/{HASH_TAG_PROJECT}"
 
 # Redis & Celery configuration
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
