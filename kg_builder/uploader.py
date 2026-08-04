@@ -5,7 +5,7 @@ import hashlib
 import time
 import requests
 from backend.config import API_KEY, BASE_URL
-from backend import db
+from kg_builder import db
 
 with open(os.path.join(os.path.dirname(__file__), "uploader_config.json")) as f:
     _config = json.load(f)

@@ -2,7 +2,7 @@ import sqlite3
 import os
 import time
 
-# Database lives in the project root, not inside backend/
+# Database lives in the project root, not inside kg_builder/
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "upload_records.db")
 
 
