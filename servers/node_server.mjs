@@ -239,7 +239,13 @@ const server = createServer(async (req, res) => {
 
         // Serve frontend HTML
         if (req.method === 'GET' && url.pathname === '/') {
-            await sendFile(res, path.join(__dirname, '..', 'frontend', 'index.html'), 'text/html; charset=utf-8');
+            await sendFile(res, path.join(__dirname, '..', 'frontend', 'search.html'), 'text/html; charset=utf-8');
+            return;
+        }
+
+        // Serve report page
+        if (req.method === 'GET' && url.pathname === '/report.html') {
+            await sendFile(res, path.join(__dirname, '..', 'frontend', 'report.html'), 'text/html; charset=utf-8');
             return;
         }
 
