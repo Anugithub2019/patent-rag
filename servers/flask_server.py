@@ -27,7 +27,13 @@ redis_client = redis_lib.from_url(REDIS_URL)
 @app.route("/")
 def index():
     """Serve the main frontend page."""
-    return send_from_directory(frontend_dir, "index.html")
+    return send_from_directory(frontend_dir, "search.html")
+
+
+@app.route("/report.html")
+def report():
+    """Serve the report page."""
+    return send_from_directory(frontend_dir, "report.html")
 
 
 @app.route("/api/query", methods=["POST"])
