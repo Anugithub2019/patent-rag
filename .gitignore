@@ -27,3 +27,6 @@ tests/
 tests/*
 !tests/test_*.py
 !tests/test_*.js
+!tests/fixtures/
+tests/fixtures/*
+!tests/fixtures/*.json

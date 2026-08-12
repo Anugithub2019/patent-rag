@@ -1,0 +1,8 @@
+{
+  "schema_version": 2,
+  "overall_assessment": { "status": "inconclusive", "summary": "Duplicate fixture." },
+  "features": [
+    { "feature_id": 1, "feature_text": "First feature.", "matches": [] },
+    { "feature_id": 1, "feature_text": "Duplicate feature.", "matches": [] }
+  ]
+}
