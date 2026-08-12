@@ -1,0 +1,6 @@
+redis
+celery
+requests
+python-dotenv
+flask
+openpyxl
