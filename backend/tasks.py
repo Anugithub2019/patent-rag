@@ -10,9 +10,10 @@ Defines the background task that:
 import json
 import hashlib
 from backend.celery_app import app
-from backend.config import CACHE_TTL
+from backend.config import CACHE_TTL, DEBUG_INVALID_REPORTS
 from backend.hashtag_client import query_hashtag
 from backend.similarity import process_query_response
+from backend.contract import ContractError, make_job_result, validate_analysis
 import redis as redis_lib
 from backend.config import REDIS_URL
 
@@ -34,24 +35,24 @@ def process_query(self, job_id: str, text: str):
     """
     # Compute a cache key based on the query text for deduplication
     query_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    cache_key = f"query_cache:{query_hash}"
+    # Version the cache namespace so legacy result payloads can never be
+    # returned as Schema v2 reports.
+    cache_key = f"query_cache:v3:{query_hash}"
 
     # Check if we already have a cached result for this exact query
     cached = redis_client.get(cache_key)
     if cached:
-        result_data = json.loads(cached)
+        result_data = validate_analysis(json.loads(cached))
         # Store under the job_id so the poller can find it
-        redis_client.setex(f"job:{job_id}", CACHE_TTL, json.dumps({
-            "status": "complete",
-            "data": result_data
-        }))
+        redis_client.setex(f"job:{job_id}", CACHE_TTL, json.dumps(
+            make_job_result("complete", data=result_data)
+        ))
         return result_data
 
     # Mark as processing in Redis
-    redis_client.setex(f"job:{job_id}", CACHE_TTL, json.dumps({
-        "status": "pending"
-    }))
+    redis_client.setex(f"job:{job_id}", CACHE_TTL, json.dumps(make_job_result("pending")))
 
+    raw_data = None
     try:
         # Call the Hashtag AI /query API via the dedicated client
         raw_data = query_hashtag(text)
@@ -62,12 +63,24 @@ def process_query(self, job_id: str, text: str):
         # Store the result in both the job-specific key and the cache
         result_json = json.dumps(parsed)
         redis_client.setex(cache_key, CACHE_TTL, result_json)
-        redis_client.setex(f"job:{job_id}", CACHE_TTL, json.dumps({
-            "status": "complete",
-            "data": parsed
-        }))
+        redis_client.setex(f"job:{job_id}", CACHE_TTL, json.dumps(
+            make_job_result("complete", data=parsed)
+        ))
 
         return parsed
+
+    except ContractError as exc:
+        error_msg = f"Backend returned an invalid report: {exc}"
+        debug = None
+        if DEBUG_INVALID_REPORTS:
+            debug = {
+                "validation_error": str(exc),
+                "upstream_response": raw_data,
+            }
+        redis_client.setex(f"job:{job_id}", CACHE_TTL, json.dumps(
+            make_job_result("failed", error=error_msg, debug=debug)
+        ))
+        raise Exception(error_msg) from exc
 
     except Exception as exc:
         # Check if this is a timeout/connection error from the requests library
@@ -79,14 +92,12 @@ def process_query(self, job_id: str, text: str):
             error_msg = "Could not connect to backend API"
         else:
             # For other errors, retry up to max_retries
-            redis_client.setex(f"job:{job_id}", CACHE_TTL, json.dumps({
-                "status": "failed",
-                "error": str(exc)
-            }))
+            redis_client.setex(f"job:{job_id}", CACHE_TTL, json.dumps(
+                make_job_result("failed", error=str(exc))
+            ))
             raise self.retry(exc=exc)
 
-        redis_client.setex(f"job:{job_id}", CACHE_TTL, json.dumps({
-            "status": "failed",
-            "error": error_msg
-        }))
+        redis_client.setex(f"job:{job_id}", CACHE_TTL, json.dumps(
+            make_job_result("failed", error=error_msg)
+        ))
         raise Exception(error_msg)

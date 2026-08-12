@@ -5,7 +5,9 @@ Handles extraction and transformation of similarity search results
 from the Hashtag AI knowledge graph API response.
 """
 
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, TypedDict
+
+from backend.contract import parse_analysis_response
 
 
 class SimilarityResult(TypedDict):
@@ -138,43 +140,14 @@ def extract_contexts(response_data: Dict[str, Any]) -> str:
     return str(contexts) if contexts else ""
 
 
-def process_query_response(response_data: Dict[str, Any]) -> ParsedResponse:
+def process_query_response(response_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Process the raw Hashtag AI /query API response into a structured,
-    frontend-friendly format.
-
-    This is the main orchestration function that:
-    1. Extracts chunk details, sources, answer, and contexts from the raw response.
-    2. Transforms each chunk into a SimilarityResult.
-    3. Sorts results by similarity (highest first).
-    4. Packages everything into a ParsedResponse.
+    Extract and validate the Schema v2 analysis returned by Hashtag AI.
 
     Args:
         response_data: The raw JSON response from the Hashtag AI /query endpoint.
 
     Returns:
-        A ParsedResponse dict containing:
-        - results: list of SimilarityResult (sorted by similarity descending)
-        - answer: the generated answer text
-        - sources: list of source document IDs
-        - contexts: the full retrieved context text
-        - total_results: number of results found
+        A validated Schema v2 report containing overall_assessment and features.
     """
-    chunk_details = extract_chunk_details(response_data)
-    sources = extract_sources(response_data)
-    answer = extract_answer(response_data)
-    contexts = extract_contexts(response_data)
-
-    # Transform each raw chunk into a structured SimilarityResult
-    results = [parse_similarity_chunk(chunk) for chunk in chunk_details]
-
-    # Sort by similarity score descending
-    results = sort_by_similarity_desc(results)
-
-    return ParsedResponse(
-        results=results,
-        answer=answer,
-        sources=sources,
-        contexts=contexts,
-        total_results=len(results)
-    )
+    return parse_analysis_response(response_data)

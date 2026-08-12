@@ -3,6 +3,7 @@ data/
 *.zip
 *.xml
 *.txt
+!requirements.txt
 
 # ===== API =====
 .env
@@ -22,3 +23,10 @@ upload_records.db
 
 # ===== Test =====
 tests/
+!tests/
+tests/*
+!tests/test_*.py
+!tests/test_*.js
+!tests/fixtures/
+tests/fixtures/*
+!tests/fixtures/*.json

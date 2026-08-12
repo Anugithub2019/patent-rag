@@ -1,4 +1,5 @@
 const baseUrl = 'https://kg-api.hashtag.ai/patentrag';
+const { ContractError, buildStructuredQuery, parseAnalysisResponse } = require('./contract');
 
 const QUESTION_PREFIXES = [
     "is there", "what", "find", "summarize",
@@ -9,15 +10,7 @@ const QUESTION_PREFIXES = [
 ];
 
 function buildQuery(userText) {
-    const text = String(userText).trim();
-    if (!text) return "";
-
-    const firstWord = text.split(/\s+/)[0].toLowerCase().replace(/[?,.;:!]+$/, "");
-    if (QUESTION_PREFIXES.includes(firstWord)) {
-        return text;
-    }
-
-    return `Is there any novelty in this technology? Technology draft: ${text}`;
+    return buildStructuredQuery(userText);
 }
 
 function extractChunkDetails(responseData) {
@@ -36,29 +29,23 @@ function buildPatentTitle(chunkId, maxChars = 12) {
 }
 
 function processQueryResponse(responseData) {
-    const results = extractChunkDetails(responseData)
-        .map((chunk) => {
-            const chunkId = chunk.id || 'unknown';
-            return {
-                patent_id: chunkId,
-                title: buildPatentTitle(chunkId),
-                similarity: Number(chunk.score || 0),
-                snippet: chunk.text || ''
-            };
-        })
-        .sort((a, b) => b.similarity - a.similarity);
+    return parseAnalysisResponse(responseData);
+}
 
-    const contexts = responseData?.info?.metric_details?.contexts || '';
-    return {
-        results,
-        answer: responseData?.answer || '',
-        sources: extractSources(responseData),
-        contexts: String(contexts),
-        total_results: results.length
-    };
+function invalidReportPayload(validationError, upstreamResponse) {
+    const payload = { error: `Backend returned an invalid report: ${validationError}` };
+    if (process.env.DEBUG_INVALID_REPORTS === 'true') {
+        payload.debug = {
+            validation_error: validationError,
+            upstream_response: upstreamResponse
+        };
+    }
+    return payload;
 }
 
 module.exports = async function handler(req, res) {
+    res.setHeader('Cache-Control', 'no-store');
+
     if (req.method !== 'POST') {
         res.setHeader('Allow', 'POST');
         res.status(405).json({ error: 'Method not allowed' });
@@ -71,7 +58,7 @@ module.exports = async function handler(req, res) {
         return;
     }
 
-    if (!req.body || typeof req.body.text !== 'string') {
+    if (!req.body || typeof req.body.text !== 'string' || !req.body.text.trim()) {
         res.status(400).json({ error: "Missing 'text' field in request body" });
         return;
     }
@@ -100,7 +87,23 @@ module.exports = async function handler(req, res) {
             return;
         }
 
-        res.status(200).json(processQueryResponse(JSON.parse(responseText)));
+        let responseData;
+        try {
+            responseData = JSON.parse(responseText);
+        } catch {
+            res.status(502).json(invalidReportPayload('response was not valid JSON', responseText));
+            return;
+        }
+
+        try {
+            res.status(200).json(processQueryResponse(responseData));
+        } catch (error) {
+            if (error instanceof ContractError) {
+                res.status(502).json(invalidReportPayload(error.message, responseData));
+                return;
+            }
+            throw error;
+        }
     } catch (error) {
         if (error.name === 'AbortError') {
             res.status(504).json({ error: 'Request to backend API timed out' });

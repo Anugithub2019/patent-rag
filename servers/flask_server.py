@@ -3,6 +3,7 @@ Flask server for PatentRAG with Redis + Celery async query processing.
 
 Endpoints:
   GET  /               - Serve the frontend HTML
+  GET  /styles.css     - Serve the shared frontend stylesheet
   GET  /api/health     - Health check
   POST /api/query      - Submit a query, returns a job_id immediately (HTTP 202)
   GET  /api/result/<job_id> - Poll for job result status
@@ -14,6 +15,7 @@ import redis as redis_lib
 from flask import Flask, request, jsonify, send_from_directory
 
 from backend.config import REDIS_URL, CACHE_TTL
+from backend.contract import ContractError, make_job_result, validate_contract
 
 # The Flask app file is in the servers/ directory; serve frontend from ../frontend
 frontend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend")
@@ -22,6 +24,13 @@ app = Flask(__name__, static_folder=frontend_dir)
 
 # Redis client for job status/results
 redis_client = redis_lib.from_url(REDIS_URL)
+
+
+@app.after_request
+def prevent_api_response_caching(response):
+    if request.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.route("/")
@@ -34,6 +43,12 @@ def index():
 def report():
     """Serve the report page."""
     return send_from_directory(frontend_dir, "report.html")
+
+
+@app.route("/styles.css")
+def styles():
+    """Serve the shared frontend stylesheet."""
+    return send_from_directory(frontend_dir, "styles.css", mimetype="text/css")
 
 
 @app.route("/api/query", methods=["POST"])
@@ -49,25 +64,26 @@ def submit_query():
     """
     try:
         data = request.get_json()
-        if not data or "text" not in data:
-            return jsonify({"error": "Missing 'text' field in request body"}), 400
-
+        validate_contract(data, "queryRequest")
         text = data["text"].strip()
-        if not text:
-            return jsonify({"error": "'text' field cannot be empty"}), 400
 
         # Generate a unique job ID
         job_id = str(uuid.uuid4())
 
         # Store initial pending status in Redis
-        job_data = json.dumps({"status": "pending"})
+        job_data = json.dumps(make_job_result("pending"))
         redis_client.setex(f"job:{job_id}", CACHE_TTL, job_data)
 
         # Enqueue the Celery task (lazy import to avoid import issues at module level)
         from backend.tasks import process_query
         process_query.delay(job_id, text)
 
-        return jsonify({"job_id": job_id}), 202
+        response = {"job_id": job_id}
+        validate_contract(response, "queryAccepted")
+        return jsonify(response), 202
+
+    except ContractError as e:
+        return jsonify({"error": str(e)}), 400
 
     except Exception as e:
         return jsonify({"error": f"Internal server error: {str(e)}"}), 500
@@ -89,7 +105,12 @@ def get_result(job_id):
         if raw is None:
             return jsonify({"error": "Job not found"}), 404
 
-        return jsonify(json.loads(raw)), 200
+        result = json.loads(raw)
+        validate_contract(result, "jobResult")
+        return jsonify(result), 200
+
+    except ContractError as e:
+        return jsonify({"error": f"Stored job result violates the API contract: {e}"}), 500
 
     except Exception as e:
         return jsonify({"error": f"Internal server error: {str(e)}"}), 500

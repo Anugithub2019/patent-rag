@@ -1,0 +1,31 @@
+{
+  "schema_version": 2,
+  "overall_assessment": {
+    "status": "no_single_reference_match",
+    "summary": "No single retrieved reference discloses all analyzed features."
+  },
+  "features": [
+    {
+      "feature_id": 1,
+      "feature_text": "A controller opens a power contact after detecting an interlock interruption.",
+      "matches": [
+        {
+          "reference_id": "R1",
+          "patent_id": "US20250376069A1",
+          "title": "Switch for decommissioning an onboard battery",
+          "status": "disclosed",
+          "disclosure_summary": "The reference describes the claimed control sequence.",
+          "evidence": [
+            { "passage": "The controller causes the main contact to open.", "location": "Claim 1" }
+          ],
+          "source_url": "https://patents.google.com/patent/US20250376069A1/en"
+        }
+      ]
+    },
+    {
+      "feature_id": 2,
+      "feature_text": "A second independently switchable power contact is provided.",
+      "matches": []
+    }
+  ]
+}
