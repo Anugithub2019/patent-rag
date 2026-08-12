@@ -4,12 +4,26 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
+import { createRequire } from 'node:module';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.dirname(__dirname);
 const port = Number(process.env.PORT || 3000);
 const baseUrl = 'https://kg-api.hashtag.ai/patentrag';
+const require = createRequire(import.meta.url);
+const { ContractError, buildStructuredQuery, parseAnalysisResponse } = require('../api/contract.js');
+
+class UpstreamHttpError extends Error {}
+
+class InvalidReportError extends Error {
+    constructor(validationError, upstreamResponse) {
+        super(`Backend returned an invalid report: ${validationError}`);
+        this.name = 'InvalidReportError';
+        this.validationError = validationError;
+        this.upstreamResponse = upstreamResponse;
+    }
+}
 
 // In-memory job store for async query support
 const jobs = new Map();
@@ -42,9 +56,21 @@ function sendJson(res, statusCode, data) {
     const body = JSON.stringify(data, null, 2);
     res.writeHead(statusCode, {
         'Content-Type': 'application/json; charset=utf-8',
-        'Content-Length': Buffer.byteLength(body)
+        'Content-Length': Buffer.byteLength(body),
+        'Cache-Control': 'no-store'
     });
     res.end(body);
+}
+
+function invalidReportDebug(error) {
+    if (!(error instanceof InvalidReportError) || process.env.DEBUG_INVALID_REPORTS !== 'true') {
+        return undefined;
+    }
+
+    return {
+        validation_error: error.validationError,
+        upstream_response: error.upstreamResponse
+    };
 }
 
 async function sendFile(res, filePath, contentType) {
@@ -74,15 +100,7 @@ const QUESTION_PREFIXES = [
 ];
 
 function buildQuery(userText) {
-    const text = String(userText).trim();
-    if (!text) return "";
-
-    const firstWord = text.split(/\s+/)[0].toLowerCase().replace(/[?,.;:!]+$/, "");
-    if (QUESTION_PREFIXES.includes(firstWord)) {
-        return text;
-    }
-
-    return `Is there any novelty in this technology? Technology draft: ${text}`;
+    return buildStructuredQuery(userText);
 }
 
 function extractChunkDetails(responseData) {
@@ -101,26 +119,7 @@ function buildPatentTitle(chunkId, maxChars = 12) {
 }
 
 function processQueryResponse(responseData) {
-    const results = extractChunkDetails(responseData)
-        .map((chunk) => {
-            const chunkId = chunk.id || 'unknown';
-            return {
-                patent_id: chunkId,
-                title: buildPatentTitle(chunkId),
-                similarity: Number(chunk.score || 0),
-                snippet: chunk.text || ''
-            };
-        })
-        .sort((a, b) => b.similarity - a.similarity);
-
-    const contexts = responseData?.info?.metric_details?.contexts || '';
-    return {
-        results,
-        answer: responseData?.answer || '',
-        sources: extractSources(responseData),
-        contexts: String(contexts),
-        total_results: results.length
-    };
+    return parseAnalysisResponse(responseData);
 }
 
 async function fetchFromHashtag(documentText) {
@@ -146,13 +145,33 @@ async function fetchFromHashtag(documentText) {
 
         const responseText = await response.text();
         if (!response.ok) {
-            throw new Error(`Backend API returned status ${response.status}: ${responseText}`);
+            throw new UpstreamHttpError(`Backend API returned status ${response.status}: ${responseText}`);
         }
 
-        return processQueryResponse(JSON.parse(responseText));
+        let responseData;
+        try {
+            responseData = JSON.parse(responseText);
+        } catch {
+            throw new InvalidReportError('response was not valid JSON', responseText);
+        }
+
+        try {
+            return processQueryResponse(responseData);
+        } catch (error) {
+            if (error instanceof ContractError) {
+                throw new InvalidReportError(error.message, responseData);
+            }
+            throw error;
+        }
     } catch (error) {
         if (error.name === 'AbortError') {
             throw new Error('Request to backend API timed out');
+        }
+        if (error instanceof InvalidReportError) {
+            throw error;
+        }
+        if (error instanceof UpstreamHttpError) {
+            throw error;
         }
         throw new Error(`Could not connect to backend API: ${error.message}`);
     } finally {
@@ -169,7 +188,7 @@ async function handleSubmitQuery(req, res) {
         return;
     }
 
-    if (!data || typeof data.text !== 'string') {
+    if (!data || typeof data.text !== 'string' || !data.text.trim()) {
         sendJson(res, 400, { error: "Missing 'text' field in request body" });
         return;
     }
@@ -187,6 +206,7 @@ async function handleSubmitQuery(req, res) {
         .catch((error) => {
             job.status = 'failed';
             job.error = error.message;
+            job.debug = invalidReportDebug(error);
         });
 
     // Clean up old jobs periodically
@@ -205,7 +225,9 @@ function handleGetResult(req, res, jobId) {
     if (job.status === 'complete') {
         sendJson(res, 200, { status: 'complete', data: job.data });
     } else if (job.status === 'failed') {
-        sendJson(res, 200, { status: 'failed', error: job.error });
+        const result = { status: 'failed', error: job.error };
+        if (job.debug) result.debug = job.debug;
+        sendJson(res, 200, result);
     } else {
         sendJson(res, 200, { status: 'pending' });
     }
@@ -220,7 +242,7 @@ async function handleSearch(req, res) {
         return;
     }
 
-    if (!data || typeof data.text !== 'string') {
+    if (!data || typeof data.text !== 'string' || !data.text.trim()) {
         sendJson(res, 400, { error: "Missing 'text' field in request body" });
         return;
     }
@@ -229,7 +251,10 @@ async function handleSearch(req, res) {
         const parsed = await fetchFromHashtag(data.text);
         sendJson(res, 200, parsed);
     } catch (error) {
-        sendJson(res, 502, { error: error.message });
+        const result = { error: error.message };
+        const debug = invalidReportDebug(error);
+        if (debug) result.debug = debug;
+        sendJson(res, 502, result);
     }
 }
 
@@ -246,6 +271,12 @@ const server = createServer(async (req, res) => {
         // Serve report page
         if (req.method === 'GET' && url.pathname === '/report.html') {
             await sendFile(res, path.join(__dirname, '..', 'frontend', 'report.html'), 'text/html; charset=utf-8');
+            return;
+        }
+
+        // Serve shared frontend styles
+        if (req.method === 'GET' && url.pathname === '/styles.css') {
+            await sendFile(res, path.join(__dirname, '..', 'frontend', 'styles.css'), 'text/css; charset=utf-8');
             return;
         }
 

@@ -3,616 +3,709 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PatentRAG - Search Report</title>
-    <style>
-        :root {
-            color-scheme: light;
-            --bg: #f5f5f8;
-            --panel: #f0f0f5;
-            --panel-border: #cac4d0;
-            --surface: #ffffff;
-            --surface-border: #d7d7dc;
-            --text: #1d1d22;
-            --muted: #8d8d96;
-            --muted-strong: #6f7078;
-            --accent: #111114;
-            --accent-soft: #ededf0;
-            --success: #217a3b;
-            --success-bg: #e7f7ec;
-            --warning: #9a5b00;
-            --warning-bg: #fff2ce;
-            --danger: #b12a3c;
-            --danger-bg: #ffe7eb;
-            --info: #315fbd;
-            --info-bg: #eaf1ff;
-            --shadow: 0 22px 60px rgba(20, 20, 35, 0.10);
-            --font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        }
-
-        *, *::before, *::after {
-            box-sizing: border-box;
-        }
-
-        * {
-            margin: 0;
-        }
-
-        body {
-            min-height: 100vh;
-            background: #f1f1f1;
-            color: var(--text);
-            font-family: var(--font);
-            line-height: 1.5;
-        }
-
-        button {
-            font: inherit;
-            border: 0;
-        }
-
-        .report-page {
-            min-height: 100vh;
-            display: grid;
-            grid-template-columns: 333px minmax(0, 1fr);
-            background: #f1f1f1;
-            color: #111111;
-        }
-
-        .report-sidebar {
-            min-height: 100vh;
-            padding: 33px 16px;
-            background: #ffffff;
-            border-right: 1px solid #d4d4d4;
-        }
-
-        .report-brand {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            margin-bottom: 14px;
-            font-size: 1rem;
-            font-weight: 760;
-        }
-
-        .brand-mark {
-            width: 24px;
-            height: 24px;
-            color: #6a4bb3;
-        }
-
-        .report-status {
-            margin-bottom: 10px;
-            color: #777777;
-            font-size: 0.92rem;
-            font-weight: 760;
-        }
-
-        .progress-list {
-            display: grid;
-            gap: 13px;
-            list-style: none;
-            padding: 0;
-        }
-
-        .progress-step {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            color: #1f1f1f;
-            font-size: 1rem;
-            line-height: 1.45;
-        }
-
-        .progress-dot {
-            width: 8px;
-            height: 8px;
-            flex: 0 0 auto;
-            border-radius: 999px;
-            background: #d7d7d7;
-            opacity: 0;
-        }
-
-        .progress-step.active .progress-dot {
-            background: #6a4bb3;
-            opacity: 1;
-        }
-
-        .progress-step.done .progress-dot {
-            background: #111111;
-            opacity: 1;
-        }
-
-        .sidebar-actions {
-            margin-top: 28px;
-        }
-
-        .text-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 9px 10px;
-            border-radius: 8px;
-            background: #f4f4f4;
-            color: #1f1f1f;
-            cursor: pointer;
-            font-size: 0.9rem;
-            font-weight: 700;
-        }
-
-        .text-btn:hover,
-        .text-btn:focus-visible {
-            background: #e9e9e9;
-            outline: none;
-        }
-
-        .report-main {
-            min-width: 0;
-            padding: 0 16px 58px 32px;
-        }
-
-        .report-title-band {
-            min-height: 71px;
-            display: flex;
-            align-items: center;
-            margin-bottom: 87px;
-            padding: 18px 0 18px 0;
-            background: #ffffff;
-        }
-
-        .report-title-band h2 {
-            font-size: 1.52rem;
-            font-weight: 790;
-            line-height: 1.1;
-        }
-
-        .report-content {
-            display: grid;
-            gap: 66px;
-            max-width: 880px;
-        }
-
-        .report-block {
-            padding: 10px 10px 12px;
-            background: #ffffff;
-        }
-
-        .report-block h3 {
-            margin-bottom: 25px;
-            font-size: 1.55rem;
-            font-weight: 790;
-            line-height: 1.1;
-        }
-
-        .report-block h4 {
-            margin-bottom: 2px;
-            font-size: 1.48rem;
-            font-weight: 790;
-            line-height: 1.18;
-        }
-
-        .report-block p,
-        .report-block li {
-            color: #111111;
-            font-size: 0.95rem;
-            line-height: 1.38;
-        }
-
-        .report-block ul {
-            display: grid;
-            gap: 5px;
-            padding-left: 20px;
-        }
-
-        .report-meta {
-            margin-top: 8px;
-            color: #555555;
-            font-size: 0.86rem;
-            font-weight: 700;
-        }
-
-        .report-loading {
-            color: #4f4f4f;
-            font-size: 1rem;
-            font-weight: 650;
-        }
-
-        .report-error {
-            color: var(--danger);
-        }
-
-        .similarity-badge {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            min-width: 68px;
-            padding: 7px 10px;
-            border-radius: 999px;
-            font-size: 0.82rem;
-            font-weight: 800;
-        }
-
-        .similarity-high {
-            background: var(--success-bg);
-            color: var(--success);
-        }
-
-        .similarity-medium {
-            background: var(--warning-bg);
-            color: var(--warning);
-        }
-
-        .similarity-low {
-            background: var(--danger-bg);
-            color: var(--danger);
-        }
-
-        .empty-state {
-            padding: 34px 20px;
-            color: var(--muted-strong);
-            text-align: center;
-        }
-
-        .hidden {
-            display: none !important;
-        }
-
-        @media (max-width: 820px) {
-            .report-page {
-                grid-template-columns: 1fr;
-            }
-
-            .report-sidebar {
-                min-height: auto;
-                border-right: 0;
-                border-bottom: 1px solid #d4d4d4;
-            }
-
-            .report-main {
-                padding: 0 14px 40px;
-            }
-
-            .report-title-band {
-                margin-bottom: 38px;
-                padding-left: 0;
-            }
-
-            .report-content {
-                max-width: none;
-                gap: 38px;
-            }
-        }
-
-        @media (max-width: 520px) {
-            .report-sidebar {
-                padding: 24px 14px;
-            }
-
-            .progress-step {
-                font-size: 0.94rem;
-            }
-
-            .report-block h3,
-            .report-block h4 {
-                font-size: 1.2rem;
-            }
-        }
-    </style>
+    <meta name="description" content="PatentRAG prior-art and novelty analysis report">
+    <title>PatentRAG | Analysis Brief</title>
+    <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-    <div id="app">
-        <div class="report-page" aria-labelledby="reportTitle">
-            <aside class="report-sidebar">
-                <div class="report-brand">
-                    <svg class="brand-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                        <path d="M12 2.25 14.43 4.7l3.43-.49 1.1 3.28 3.04 1.67-1.54 3.09 1.54 3.09-3.04 1.67-1.1 3.28-3.43-.49L12 21.75 9.57 19.3l-3.43.49-1.1-3.28L2 14.84l1.54-3.09L2 8.66l3.04-1.67 1.1-3.28 3.43.49L12 2.25Z"></path>
-                    </svg>
-                    <span>Novelty Search</span>
-                </div>
-                <div class="report-status">{{ reportStatus }}</div>
-                <ol class="progress-list" aria-label="Report generation progress">
-                    <li class="progress-step" :class="stepClass(0)"><span class="progress-dot"></span><span>Step 1: finding reference patents</span></li>
-                    <li class="progress-step" :class="stepClass(1)"><span class="progress-dot"></span><span>Step 2: AI matching patents</span></li>
-                    <li class="progress-step" :class="stepClass(2)"><span class="progress-dot"></span><span>Step 3: analysing novelty</span></li>
-                    <li class="progress-step" :class="stepClass(3)"><span class="progress-dot"></span><span>Step 4: preparing result documents</span></li>
-                </ol>
-                <div class="sidebar-actions">
-                    <button class="text-btn" v-if="showNewSearch" type="button" @click="goToSearch">
-                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" aria-hidden="true">
-                            <path d="M19 12H5"></path>
-                            <path d="m12 19-7-7 7-7"></path>
+    <div id="app" v-cloak>
+        <div class="report-page">
+            <p class="sr-only" role="status" aria-live="polite">{{ reportStatus }}</p>
+            <header class="site-header report-masthead">
+                <a class="brand" href="/" aria-label="PatentRAG home" @click="cancelPolling">
+                    <span class="brand-mark" aria-hidden="true">
+                        <svg viewBox="0 0 32 32" fill="none" stroke="currentColor">
+                            <path d="M7.5 4.5h12l5 5v18h-17z"></path>
+                            <path d="M19.5 4.5v5h5"></path>
+                            <path d="M11.5 15h9M11.5 19h9M11.5 23h6"></path>
                         </svg>
-                        New search
-                    </button>
-                </div>
-            </aside>
+                    </span>
+                    <span class="brand-copy">
+                        <span class="brand-name">PatentRAG</span>
+                        <span class="brand-descriptor">Prior-art and novelty analysis</span>
+                    </span>
+                </a>
+                <!-- <p class="site-classification">Patent analysis brief</p> -->
+            </header>
 
-            <div class="report-main">
-                <div class="report-title-band">
-                    <h2 id="reportTitle">Search Report</h2>
-                </div>
-                <div class="report-content" v-html="reportContent"></div>
+            <div class="report-layout" :class="{ 'report-layout-complete': reportState !== 'loading' }">
+                <aside v-if="reportState === 'loading'" class="report-sidebar" aria-label="Analysis progress">
+                    <section class="progress-panel" :class="{ 'is-expanded': progressExpanded }">
+                        <button
+                            class="progress-toggle"
+                            type="button"
+                            :aria-expanded="progressExpanded"
+                            aria-controls="progressDetails"
+                            @click="progressExpanded = !progressExpanded"
+                        >
+                            <span>
+                                <span class="eyebrow">Analysis progress</span>
+                                <span class="progress-toggle-status">{{ reportStatus }}</span>
+                            </span>
+                            <svg class="progress-chevron" :class="{ 'is-open': progressExpanded }" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                                <path d="m5.5 7.5 4.5 4.5 4.5-4.5" stroke="currentColor" stroke-width="1.5"></path>
+                            </svg>
+                        </button>
+
+                        <div id="progressDetails" class="progress-details" :hidden="!progressExpanded">
+                            <div class="progress-heading">
+                                <p class="eyebrow">Analysis progress</p>
+                                <p class="report-status">{{ reportStatus }}</p>
+                            </div>
+                            <ol class="progress-list">
+                                <li
+                                    v-for="(step, index) in progressSteps"
+                                    :key="step.title"
+                                    class="progress-step"
+                                    :class="stepClass(index)"
+                                >
+                                    <span class="progress-marker" aria-hidden="true">
+                                        <svg v-if="index < activeStep" viewBox="0 0 16 16" fill="none">
+                                            <path d="m4 8.25 2.4 2.4L12 5.5" stroke="currentColor" stroke-width="1.5"></path>
+                                        </svg>
+                                        <span v-else>{{ index + 1 }}</span>
+                                    </span>
+                                    <span class="progress-step-copy">
+                                        <strong>{{ step.title }}</strong>
+                                        <span>{{ step.description }}</span>
+                                    </span>
+                                    <span class="sr-only">{{ progressStepStatus(index) }}</span>
+                                </li>
+                            </ol>
+                        </div>
+                    </section>
+                </aside>
+
+                <main class="report-main" aria-labelledby="reportTitle">
+                    <header class="report-heading">
+                        <div class="report-heading-row">
+                            <div>
+                                <p class="eyebrow">Novelty search</p>
+                                <h1 id="reportTitle">Search report</h1>
+                            </div>
+                            <button v-if="showNewSearch" class="button button-report-action" type="button" @click="goToSearch">
+                                <svg class="button-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                                    <path d="M16 10H4M9 5l-5 5 5 5" stroke="currentColor" stroke-width="1.5"></path>
+                                </svg>
+                                New search
+                            </button>
+                        </div>
+                        <p class="report-introduction">
+                            A feature-by-feature review of the submitted technology and relevant prior-art disclosures.
+                            This automated report supports research and does not constitute legal advice.
+                        </p>
+                    </header>
+
+                    <div class="report-document" :aria-busy="reportState === 'loading'">
+                        <section v-if="reportState === 'loading'" class="state-card state-card-loading" role="status" aria-live="polite">
+                            <span class="state-icon state-icon-loading" aria-hidden="true"></span>
+                            <div>
+                                <p class="eyebrow">Analysis in progress</p>
+                                <h2>Reviewing relevant prior art</h2>
+                                <p>PatentRAG is retrieving references, comparing technical features, and preparing the analysis brief.</p>
+                            </div>
+                        </section>
+
+                        <section v-else-if="reportState === 'error'" class="state-card state-card-error" role="alert">
+                            <svg class="state-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5"></circle>
+                                <path d="M12 7.5v6M12 17h.01" stroke="currentColor" stroke-width="1.5"></path>
+                            </svg>
+                            <div>
+                                <p class="eyebrow">Analysis interrupted</p>
+                                <h2>Unable to prepare the report</h2>
+                                <p>{{ errorMessage }}</p>
+                                <details v-if="debugDetails" class="report-debug">
+                                    <summary>Show raw backend response</summary>
+                                    <pre>{{ debugDetails }}</pre>
+                                </details>
+                            </div>
+                        </section>
+
+                        <section v-else-if="reportState === 'unsupported'" class="state-card state-card-unavailable" role="alert">
+                            <svg class="state-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5"></circle>
+                                <path d="M8.5 9.25a3.5 3.5 0 0 1 6.82 1.1c0 2.15-2.12 2.55-2.82 3.75M12.5 17.25h.01" stroke="currentColor" stroke-width="1.5"></path>
+                            </svg>
+                            <div>
+                                <p class="eyebrow">Feature analysis unavailable</p>
+                                <h2>Structured feature analysis unavailable</h2>
+                                <p>{{ unsupportedMessage }}</p>
+                            </div>
+                        </section>
+
+                        <template v-else-if="reportState === 'complete'">
+                            <section class="executive-card executive-card-compact" aria-labelledby="executiveAssessmentTitle">
+                                <div class="section-heading-row">
+                                    <div>
+                                        <h2 id="executiveAssessmentTitle">Assessment summary</h2>
+                                    </div>
+                                    <span class="status-label" :class="assessmentStatusClass">
+                                        <span class="status-dot" aria-hidden="true"></span>
+                                        {{ analysisStatusLabel }}
+                                    </span>
+                                </div>
+
+                                <p class="assessment-text">{{ assessmentText }}</p>
+                            </section>
+
+                            <section class="features-section" aria-labelledby="featuresTitle">
+                                <div class="section-heading-row features-heading">
+                                    <div>
+                                        <h2 id="featuresTitle">Detailed analysis</h2>
+                                    </div>
+                                    <p class="feature-count">{{ normalizedFeatures.length }} {{ normalizedFeatures.length === 1 ? 'feature' : 'features' }}</p>
+                                </div>
+
+                                <ol class="feature-list">
+                                    <li v-for="(feature, featureIndex) in normalizedFeatures" :key="feature.key" class="feature-item">
+                                        <article :aria-labelledby="feature.domId">
+                                            <header class="feature-header">
+                                                <p class="feature-number">Feature {{ featureIndex + 1 }}</p>
+                                                <h3 :id="feature.domId">{{ feature.text }}</h3>
+                                            </header>
+
+                                            <div v-if="feature.matches.length" class="feature-reference-list">
+                                                <section
+                                                    v-for="match in feature.matches"
+                                                    :key="match.key"
+                                                    class="feature-reference"
+                                                    :aria-label="`Reference ${match.referenceNumber}: ${match.patentId}`"
+                                                >
+                                                    <div class="feature-reference-heading">
+                                                        <div class="feature-reference-identity">
+                                                            <p class="reference-number">Reference {{ match.referenceNumber }}</p>
+                                                            <h4>{{ match.title }}</h4>
+                                                            <p class="reference-id">Patent identifier <strong>{{ match.patentId }}</strong></p>
+                                                        </div>
+                                                        <span class="disclosure-status" :class="disclosureStatusClass(match.status)">
+                                                            {{ disclosureStatusLabel(match.status) }}
+                                                        </span>
+                                                    </div>
+
+                                                    <p class="disclosure-summary">{{ match.disclosureSummary }}</p>
+
+                                                    <details v-if="match.evidence.length" class="evidence-disclosure">
+                                                        <summary>{{ evidenceSummaryLabel(match.evidence.length) }}</summary>
+                                                        <ol class="evidence-list">
+                                                            <li v-for="(evidence, evidenceIndex) in match.evidence" :key="`${match.key}-evidence-${evidenceIndex}`">
+                                                                <p v-if="evidence.location" class="evidence-location">{{ evidence.location }}</p>
+                                                                <blockquote>{{ evidence.passage }}</blockquote>
+                                                            </li>
+                                                        </ol>
+                                                    </details>
+
+                                                    <a
+                                                        v-if="match.sourceUrl"
+                                                        class="reference-source-link"
+                                                        :href="match.sourceUrl"
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                    >
+                                                        Open patent source
+                                                        <span class="sr-only"> for {{ match.patentId }} in a new tab</span>
+                                                        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                                            <path d="M6.25 3.25h-3v9.5h9.5v-3M8 3.25h4.75V8M12.5 3.5 7 9" stroke="currentColor" stroke-width="1.25"></path>
+                                                        </svg>
+                                                    </a>
+                                                </section>
+                                            </div>
+
+                                            <p v-else class="feature-no-match">No matching prior-art disclosure was identified for this feature.</p>
+                                        </article>
+                                    </li>
+                                </ol>
+                            </section>
+                        </template>
+                    </div>
+                </main>
             </div>
         </div>
     </div>
 
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
     <script>
-        const { createApp, ref, onMounted } = Vue;
+        const { createApp, ref, computed, onMounted, onBeforeUnmount } = Vue;
 
         createApp({
             setup() {
-                const reportStatus = ref('Searching...');
-                const reportContent = ref('');
-                const showNewSearch = ref(false);
+                const reportState = ref('loading');
+                const reportStatus = ref('Searching…');
+                const normalizedFeatures = ref([]);
+                const overallAssessment = ref({
+                    status: 'inconclusive',
+                    summary: ''
+                });
+                const errorMessage = ref('An unexpected error prevented the analysis from completing.');
+                const debugDetails = ref('');
+                const unsupportedMessage = ref('The completed search did not include the structured feature data required by this report.');
                 const activeStep = ref(0);
                 const progressTimer = ref(null);
                 const pollTimer = ref(null);
                 const currentJobId = ref(null);
+                const mobileProgressQuery = window.matchMedia('(max-width: 960px)');
+                const progressExpanded = ref(!mobileProgressQuery.matches);
+
+                const ASSESSMENT_LABELS = Object.freeze({
+                    no_single_reference_match: 'No single-reference match',
+                    potentially_anticipated: 'Potential anticipation',
+                    inconclusive: 'Inconclusive'
+                });
+
+                const ASSESSMENT_CLASSES = Object.freeze({
+                    no_single_reference_match: 'status-label-positive',
+                    potentially_anticipated: 'status-label-caution',
+                    inconclusive: 'status-label-neutral'
+                });
+
+                const DISCLOSURE_STATUSES = new Set([
+                    'disclosed',
+                    'partially_disclosed'
+                ]);
 
                 const progressSteps = [
-                    'Step 1: finding reference patents',
-                    'Step 2: AI matching patents',
-                    'Step 3: analysing novelty',
-                    'Step 4: preparing result documents'
+                    {
+                        title: 'Reference search',
+                        description: 'Finding relevant patent records'
+                    },
+                    {
+                        title: 'Technical matching',
+                        description: 'Comparing related disclosures'
+                    },
+                    {
+                        title: 'Novelty analysis',
+                        description: 'Reviewing overlapping features'
+                    },
+                    {
+                        title: 'Report preparation',
+                        description: 'Structuring the research brief'
+                    }
                 ];
+
+                const showNewSearch = computed(() => reportState.value !== 'loading');
+
+                const analysisStatusLabel = computed(() => {
+                    return ASSESSMENT_LABELS[overallAssessment.value.status] || ASSESSMENT_LABELS.inconclusive;
+                });
+
+                const assessmentStatusClass = computed(() => {
+                    return ASSESSMENT_CLASSES[overallAssessment.value.status] || ASSESSMENT_CLASSES.inconclusive;
+                });
+
+                const assessmentText = computed(() => {
+                    return overallAssessment.value.summary;
+                });
 
                 function stepClass(index) {
                     return {
-                        'done': index < activeStep.value,
-                        'active': index === activeStep.value
+                        'is-complete': index < activeStep.value,
+                        'is-active': index === activeStep.value && reportState.value === 'loading',
+                        'is-error': index === activeStep.value && reportState.value === 'error'
                     };
                 }
 
-                function setProgressStep(activeIndex) {
-                    activeStep.value = activeIndex;
+                function progressStepStatus(index) {
+                    if (index < activeStep.value) return 'Complete';
+                    if (index === activeStep.value && reportState.value === 'error') return 'Interrupted';
+                    if (index === activeStep.value && reportState.value === 'loading') return 'In progress';
+                    return 'Pending';
                 }
 
                 function startProgress() {
                     clearInterval(progressTimer.value);
                     let index = 0;
+                    activeStep.value = 0;
                     progressTimer.value = setInterval(() => {
                         index = Math.min(index + 1, progressSteps.length - 1);
-                        setProgressStep(index);
+                        activeStep.value = index;
                         if (index === progressSteps.length - 1) {
                             clearInterval(progressTimer.value);
+                            progressTimer.value = null;
                         }
                     }, 900);
                 }
 
-                function completeProgress() {
+                function completeProgress(status) {
                     clearInterval(progressTimer.value);
+                    progressTimer.value = null;
                     activeStep.value = progressSteps.length;
-                    reportStatus.value = 'Report ready';
-                    showNewSearch.value = true;
+                    reportStatus.value = status;
                 }
 
                 function showReportShell() {
-                    reportStatus.value = 'Searching...';
-                    reportContent.value = `
-                        <section class="report-block">
-                            <p class="report-loading">Preparing report...</p>
-                        </section>
-                    `;
-                    showNewSearch.value = false;
-                    setProgressStep(0);
+                    reportState.value = 'loading';
+                    reportStatus.value = 'Searching…';
+                    normalizedFeatures.value = [];
+                    overallAssessment.value = {
+                        status: 'inconclusive',
+                        summary: ''
+                    };
+                    errorMessage.value = '';
+                    debugDetails.value = '';
+                    unsupportedMessage.value = 'The completed search did not include the structured feature data required by this report.';
                     startProgress();
                 }
 
-                function escapeHtml(value) {
-                    const div = document.createElement('div');
-                    div.textContent = value;
-                    return div.innerHTML;
+                function isRecord(value) {
+                    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
                 }
 
-                function formatSimilarityText(score) {
-                    const normalizedScore = Number.isFinite(score) ? score : 0;
-                    const percent = normalizedScore <= 1 ? normalizedScore * 100 : normalizedScore;
-                    return `${percent.toFixed(1)}%`;
-                }
-
-                function formatSimilarity(score) {
-                    const normalizedScore = Number.isFinite(score) ? score : 0;
-                    const percent = normalizedScore <= 1 ? normalizedScore * 100 : normalizedScore;
-                    const cssClass = percent >= 70 ? 'similarity-high' : percent >= 40 ? 'similarity-medium' : 'similarity-low';
-                    return `<span class="similarity-badge ${cssClass}">${percent.toFixed(1)}%</span>`;
-                }
-
-                function extractResults(data) {
-                    let results = [];
-                    if (Array.isArray(data)) {
-                        results = data;
-                    } else if (Array.isArray(data.results)) {
-                        results = data.results;
-                    } else if (Array.isArray(data.data)) {
-                        results = data.data;
-                    } else if (Array.isArray(data.documents)) {
-                        results = data.documents;
+                function requireText(value, fieldName) {
+                    if (typeof value !== 'string' || !value.trim()) {
+                        throw new Error(`${fieldName} must be a non-empty string.`);
                     }
-                    return results;
+                    return value.trim();
                 }
 
-                function getDocField(doc, fields, fallback = '') {
-                    for (const field of fields) {
-                        if (doc[field] !== undefined && doc[field] !== null && String(doc[field]).trim()) {
-                            return doc[field];
+                function requirePositiveInteger(value, fieldName) {
+                    if (!Number.isInteger(value) || value < 1) {
+                        throw new Error(`${fieldName} must be a positive integer.`);
+                    }
+                    return value;
+                }
+
+                function optionalText(value, fieldName) {
+                    if (value === undefined || value === null || value === '') return '';
+                    if (typeof value !== 'string') {
+                        throw new Error(`${fieldName} must be a string when provided.`);
+                    }
+                    return value.trim();
+                }
+
+                function normalizeSourceUrl(value, fieldName) {
+                    const sourceUrl = optionalText(value, fieldName);
+                    if (!sourceUrl) return '';
+
+                    let parsedUrl;
+                    try {
+                        parsedUrl = new URL(sourceUrl);
+                    } catch {
+                        throw new Error(`${fieldName} must be a valid URL.`);
+                    }
+
+                    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+                        throw new Error(`${fieldName} must use HTTP or HTTPS.`);
+                    }
+
+                    return parsedUrl.href;
+                }
+
+                function normalizeEvidence(rawEvidence, fieldName) {
+                    if (rawEvidence === undefined) return [];
+                    if (!Array.isArray(rawEvidence)) {
+                        throw new Error(`${fieldName} must be an array when provided.`);
+                    }
+
+                    return rawEvidence.map((item, evidenceIndex) => {
+                        if (!isRecord(item)) {
+                            throw new Error(`${fieldName}[${evidenceIndex}] must be an object.`);
                         }
-                    }
-                    return fallback;
+
+                        return {
+                            passage: requireText(item.passage, `${fieldName}[${evidenceIndex}].passage`),
+                            location: optionalText(item.location, `${fieldName}[${evidenceIndex}].location`)
+                        };
+                    });
                 }
 
-                function getSimilarity(doc) {
-                    const value = doc.similarity !== undefined ? doc.similarity :
-                        doc.score !== undefined ? doc.score :
-                        doc.relevance !== undefined ? doc.relevance : 0;
-                    const number = Number(value);
-                    return Number.isFinite(number) ? number : 0;
-                }
-
-                function sentenceList(text, fallbackItems, limit = 3) {
-                    const cleanText = String(text || '').replace(/\s+/g, ' ').trim();
-                    if (!cleanText) {
-                        return fallbackItems;
+                function normalizeAnalysisPayload(data) {
+                    if (!isRecord(data) || data.schema_version !== 2) {
+                        throw new Error('A schema-version-2 analysis payload is required.');
                     }
 
-                    const sentences = cleanText
-                        .split(/(?<=[.!?])\s+/)
-                        .map((sentence) => sentence.trim())
-                        .filter(Boolean)
-                        .slice(0, limit);
+                    if (!isRecord(data.overall_assessment)) {
+                        throw new Error('overall_assessment must be an object.');
+                    }
 
-                    return sentences.length ? sentences : fallbackItems;
+                    const assessmentStatus = requireText(
+                        data.overall_assessment.status,
+                        'overall_assessment.status'
+                    );
+                    if (!Object.prototype.hasOwnProperty.call(ASSESSMENT_LABELS, assessmentStatus)) {
+                        throw new Error('overall_assessment.status is not supported.');
+                    }
+
+                    const assessment = {
+                        status: assessmentStatus,
+                        summary: requireText(
+                            data.overall_assessment.summary,
+                            'overall_assessment.summary'
+                        )
+                    };
+
+                    if (!Array.isArray(data.features) || data.features.length === 0) {
+                        throw new Error('features must be a non-empty array.');
+                    }
+
+                    const featureIds = new Set();
+                    const referenceNumbers = new Map();
+                    const referenceMetadata = new Map();
+
+                    const features = data.features.map((rawFeature, featureIndex) => {
+                        const featurePath = `features[${featureIndex}]`;
+                        if (!isRecord(rawFeature)) {
+                            throw new Error(`${featurePath} must be an object.`);
+                        }
+
+                        const featureId = requirePositiveInteger(rawFeature.feature_id, `${featurePath}.feature_id`);
+                        if (featureIds.has(featureId)) {
+                            throw new Error(`${featurePath}.feature_id must be unique.`);
+                        }
+                        featureIds.add(featureId);
+
+                        if (!Array.isArray(rawFeature.matches)) {
+                            throw new Error(`${featurePath}.matches must be an array.`);
+                        }
+
+                        const featureReferenceIds = new Set();
+                        const matches = rawFeature.matches.map((rawMatch, matchIndex) => {
+                            const matchPath = `${featurePath}.matches[${matchIndex}]`;
+                            if (!isRecord(rawMatch)) {
+                                throw new Error(`${matchPath} must be an object.`);
+                            }
+
+                            const referenceId = requireText(rawMatch.reference_id, `${matchPath}.reference_id`);
+                            if (featureReferenceIds.has(referenceId)) {
+                                throw new Error(`${matchPath}.reference_id must be unique within a feature.`);
+                            }
+                            featureReferenceIds.add(referenceId);
+
+                            const status = requireText(rawMatch.status, `${matchPath}.status`);
+                            if (!DISCLOSURE_STATUSES.has(status)) {
+                                throw new Error(`${matchPath}.status is not supported.`);
+                            }
+
+                            const patentId = requireText(rawMatch.patent_id, `${matchPath}.patent_id`);
+                            const title = requireText(rawMatch.title, `${matchPath}.title`);
+                            const existingMetadata = referenceMetadata.get(referenceId);
+                            if (existingMetadata && (existingMetadata.patentId !== patentId || existingMetadata.title !== title)) {
+                                throw new Error(`${matchPath} conflicts with another use of reference_id ${referenceId}.`);
+                            }
+                            referenceMetadata.set(referenceId, { patentId, title });
+
+                            if (!referenceNumbers.has(referenceId)) {
+                                referenceNumbers.set(referenceId, referenceNumbers.size + 1);
+                            }
+
+                            return {
+                                key: `${featureId}-${referenceId}`,
+                                referenceId,
+                                referenceNumber: referenceNumbers.get(referenceId),
+                                patentId,
+                                title,
+                                status,
+                                disclosureSummary: requireText(
+                                    rawMatch.disclosure_summary,
+                                    `${matchPath}.disclosure_summary`
+                                ),
+                                evidence: normalizeEvidence(rawMatch.evidence, `${matchPath}.evidence`),
+                                sourceUrl: normalizeSourceUrl(rawMatch.source_url, `${matchPath}.source_url`)
+                            };
+                        });
+
+                        return {
+                            key: featureId,
+                            domId: `feature-${featureIndex + 1}`,
+                            id: featureId,
+                            text: requireText(rawFeature.feature_text, `${featurePath}.feature_text`),
+                            matches
+                        };
+                    });
+
+                    return { assessment, features };
                 }
-
-                function toggleContext() {
-                    const el = document.getElementById('contextContent');
-                    const btn = document.getElementById('contextToggleBtn');
-                    if (!el) return;
-                    const hidden = el.classList.toggle('hidden');
-                    btn.textContent = hidden ? 'Show retrieved context' : 'Hide retrieved context';
-                }
-
-                // Expose toggleContext globally so it can be called from v-html rendered onclick
-                window.toggleContext = toggleContext;
 
                 function renderReport(data) {
-                    const results = extractResults(data);
-                    completeProgress();
-
-                    if (!results.length) {
-                        const answer = data && data.answer ? `<p>${escapeHtml(data.answer)}</p>` : '';
-                        reportContent.value = `
-                            <section class="report-block">
-                                <h3>No reference patents found</h3>
-                                <h4>Novelty Found</h4>
-                                ${answer || '<p>No matching prior art documents were returned for this technical solution.</p>'}
-                            </section>
-                        `;
-                        return;
+                    try {
+                        debugDetails.value = '';
+                        const analysis = normalizeAnalysisPayload(data);
+                        overallAssessment.value = analysis.assessment;
+                        normalizedFeatures.value = analysis.features;
+                        reportState.value = 'complete';
+                        completeProgress('Report ready');
+                    } catch (error) {
+                        normalizedFeatures.value = [];
+                        overallAssessment.value = {
+                            status: 'inconclusive',
+                            summary: ''
+                        };
+                        if (isRecord(data) && data.schema_version === 2) {
+                            reportState.value = 'error';
+                            reportStatus.value = 'Invalid report data';
+                            errorMessage.value = `The backend returned invalid Schema v2 report data: ${error.message}`;
+                            debugDetails.value = JSON.stringify(data, null, 2);
+                            completeProgress('Invalid report data');
+                            console.error('Invalid Schema v2 payload:', error.message);
+                        } else {
+                            reportState.value = 'unsupported';
+                            reportStatus.value = 'Feature analysis unavailable';
+                            unsupportedMessage.value = isRecord(data) && data.schema_version !== undefined
+                                ? `This report uses unsupported schema version ${String(data.schema_version)}. Start a new search after the services are upgraded.`
+                                : 'This result uses the legacy reference format and cannot support a trustworthy feature-by-feature comparison.';
+                            completeProgress('Feature analysis unavailable');
+                            console.warn('Unsupported feature-analysis payload:', error.message);
+                        }
                     }
-
-                    const topResults = results.slice(0, 2);
-                    const featureBlocks = topResults.map((doc, index) => {
-                        const id = getDocField(doc, ['patent_id', 'id', 'patentId', 'document_id'], 'Reference patent');
-                        const title = getDocField(doc, ['title', 'name', 'patent_title'], `Reference Patent ${index + 1}`);
-                        const snippet = getDocField(doc, ['snippet', 'text', 'abstract', 'description'], '');
-                        const similarity = getSimilarity(doc);
-                        const fallbackItems = [
-                            `Reference patent: ${String(id)}`,
-                            `Similarity score: ${formatSimilarityText(similarity)}`,
-                            'Key comparison sentences were returned by the patent knowledge graph.'
-                        ];
-                        const bullets = sentenceList(snippet, fallbackItems, 3)
-                            .map((item) => `<li>${escapeHtml(item)}</li>`)
-                            .join('');
-
-                        return `
-                            <section class="report-block">
-                                <h3>Feature ${index + 1}: ${escapeHtml(String(title).slice(0, 52))}</h3>
-                                <h4>Reference patents comparison</h4>
-                                <ul>${bullets}</ul>
-                                <p class="report-meta">Patent ${escapeHtml(String(id))} · ${formatSimilarityText(similarity)} match</p>
-                            </section>
-                        `;
-                    }).join('');
-
-                    const novelItems = [
-                        `${results.length} reference patent${results.length === 1 ? '' : 's'} matched the submitted solution.`,
-                        data && data.answer ? data.answer : 'Review the highlighted comparison sentences to decide which features remain novel.',
-                        'Highest-similarity references are listed first for examiner-style review.'
-                    ];
-
-                    // Build context section if contexts are available
-                    const contexts = data && data.contexts ? data.contexts : '';
-                    const contextSection = contexts ? `
-                        <section class="report-block">
-                            <h3>Retrieved Context</h3>
-                            <h4>Patent text segments matched by the knowledge graph</h4>
-                            <button class="text-btn" id="contextToggleBtn" onclick="toggleContext()" style="margin-bottom:12px">Show retrieved context</button>
-                            <div id="contextContent" class="hidden" style="max-height:400px;overflow-y:auto;padding:12px;background:#f8f8f9;border-radius:8px;font-size:0.85rem;line-height:1.45;white-space:pre-wrap;word-break:break-word;">${escapeHtml(contexts)}</div>
-                        </section>
-                    ` : '';
-
-                    reportContent.value = `
-                        ${featureBlocks}
-                        ${contextSection}
-                        <section class="report-block">
-                            <h3>Novelty Found / No Novelty Found</h3>
-                            <h4>List features that are novel</h4>
-                            <ul>${novelItems.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
-                        </section>
-                    `;
                 }
 
                 function renderReportError(error) {
                     clearInterval(progressTimer.value);
-                    setProgressStep(0);
+                    progressTimer.value = null;
+                    normalizedFeatures.value = [];
+                    reportState.value = 'error';
                     reportStatus.value = 'Search failed';
-                    showNewSearch.value = true;
-                    reportContent.value = `
-                        <section class="report-block">
-                            <h3>Search Report</h3>
-                            <h4 class="report-error">Unable to generate report</h4>
-                            <p>${escapeHtml(error.message)}</p>
-                        </section>
-                    `;
+                    const message = error && error.message ? String(error.message) : '';
+                    errorMessage.value = message || 'An unexpected error prevented the analysis from completing.';
+                    const upstreamResponse = error && isRecord(error.debug)
+                        ? error.debug.upstream_response
+                        : undefined;
+                    debugDetails.value = upstreamResponse === undefined
+                        ? ''
+                        : (typeof upstreamResponse === 'string'
+                            ? upstreamResponse
+                            : JSON.stringify(upstreamResponse, null, 2));
                 }
 
                 function renderReportPreview() {
                     showReportShell();
                     renderReport({
-                        answer: 'Potential novelty remains in the adaptive control logic and the way occupancy predictions are used to reduce energy consumption while maintaining occupant comfort.',
-                        results: [
+                        schema_version: 2,
+                        overall_assessment: {
+                            status: 'no_single_reference_match',
+                            summary: 'The reviewed references disclose several individual elements of the battery disconnect assembly, but no single reference was identified as disclosing every analyzed feature in combination.'
+                        },
+                        features: [
                             {
-                                patent_id: 'US-REF-001',
-                                title: 'Smart building energy management system',
-                                similarity: 0.87,
-                                snippet: 'A building management system receives occupancy sensor data and controls lighting and HVAC equipment. The reference describes automated low-power modes for unoccupied rooms. It does not emphasize predictive room usage modelling across multiple sensor types.'
+                                feature_id: 1,
+                                feature_text: 'A first power contact is arranged in a low-voltage supply line and is switchable between conductive and non-conductive states.',
+                                matches: [
+                                    {
+                                        reference_id: 'ref-battery-switch',
+                                        patent_id: 'US20250376069A1',
+                                        title: 'Switch for decommissioning an onboard battery',
+                                        status: 'disclosed',
+                                        disclosure_summary: 'The patent describes a first main contact positioned along a low-voltage conductor and switchable between closed and open positions.',
+                                        evidence: [
+                                            {
+                                                passage: 'The first main contact is positioned along the first conductor and is switchable between a closed position and an open position.',
+                                                location: 'Claim 1'
+                                            }
+                                        ],
+                                        source_url: 'https://patents.google.com/patent/US20250376069A1/en'
+                                    },
+                                    {
+                                        reference_id: 'ref-safety-disconnect',
+                                        patent_id: 'US20240332741A1',
+                                        title: 'Safety disconnect device for an electric vehicle',
+                                        status: 'partially_disclosed',
+                                        disclosure_summary: 'The patent discloses a switchable low-voltage contact, but the retrieved passage does not establish the same conductive-state arrangement.',
+                                        evidence: [
+                                            {
+                                                passage: 'A low-voltage contact opens in response to operation of the service disconnect.',
+                                                location: 'Paragraph 0048'
+                                            }
+                                        ],
+                                        source_url: 'https://patents.google.com/patent/US20240332741A1/en'
+                                    }
+                                ]
                             },
                             {
-                                patent_id: 'US-REF-002',
-                                title: 'Occupancy based environmental controller',
-                                similarity: 0.72,
-                                snippet: 'The controller changes heating, ventilation, and lighting settings based on detected occupancy. The patent focuses on immediate sensor readings rather than machine learning forecasts of future occupancy patterns.'
+                                feature_id: 2,
+                                feature_text: 'A manually operable disconnect handle disables the high-voltage interlock loop before the onboard battery is electrically isolated.',
+                                matches: [
+                                    {
+                                        reference_id: 'ref-battery-switch',
+                                        patent_id: 'US20250376069A1',
+                                        title: 'Switch for decommissioning an onboard battery',
+                                        status: 'disclosed',
+                                        disclosure_summary: 'The patent teaches a main lever that switches an auxiliary HVIL contact off before the main contacts open.',
+                                        evidence: [
+                                            {
+                                                passage: 'The main lever actuates the auxiliary contact before switching the main contacts from the closed position to the open position.',
+                                                location: 'Claims 1 and 7'
+                                            },
+                                            {
+                                                passage: 'Interrupting the high-voltage interlock loop causes the vehicle high-voltage system to be cut off.',
+                                                location: 'Paragraph 0061'
+                                            }
+                                        ],
+                                        source_url: 'https://patents.google.com/patent/US20250376069A1/en'
+                                    }
+                                ]
+                            },
+                            {
+                                feature_id: 3,
+                                feature_text: 'A control and monitoring module detects interruption of the interlock loop and responsively commands both power contacts to open.',
+                                matches: []
                             }
                         ]
+                    });
+                }
+
+                function renderLegacyPreview() {
+                    showReportShell();
+                    renderReport({
+                        answer: 'Legacy narrative response without structured feature comparisons.',
+                        results: []
                     });
                 }
 
                 function pollResult(jobId, onComplete, onError) {
                     currentJobId.value = jobId;
                     let attempts = 0;
-                    const maxAttempts = 180; // 180 * 2s = 6 minutes max
+                    const maxAttempts = 180;
 
                     pollTimer.value = setInterval(async () => {
-                        attempts++;
+                        attempts += 1;
                         try {
-                            const resp = await fetch(`/api/result/${jobId}`);
-                            if (!resp.ok) {
-                                if (resp.status === 404) {
-                                    onError(new Error('Job not found'));
+                            const response = await fetch(`/api/result/${encodeURIComponent(jobId)}`);
+                            if (!response.ok) {
+                                if (response.status === 404) {
                                     clearInterval(pollTimer.value);
+                                    pollTimer.value = null;
+                                    onError(new Error('The requested search job could not be found.'));
                                     return;
                                 }
-                                throw new Error(`Poll returned ${resp.status}`);
+                                throw new Error(`The report service returned status ${response.status}.`);
                             }
 
-                            const data = await resp.json();
+                            const data = await response.json();
+
+                            if (!isRecord(data) || !['pending', 'complete', 'failed'].includes(data.status)) {
+                                throw new Error('The report service returned an invalid job-status payload.');
+                            }
 
                             if (data.status === 'complete') {
+                                if (!Object.prototype.hasOwnProperty.call(data, 'data')) {
+                                    throw new Error('The completed job did not include report data.');
+                                }
                                 clearInterval(pollTimer.value);
+                                pollTimer.value = null;
                                 onComplete(data.data);
-                            } else if (data.status === 'failed') {
-                                clearInterval(pollTimer.value);
-                                onError(new Error(data.error || 'Query processing failed'));
+                                return;
                             }
-                            // status === 'pending' → keep polling
+
+                            if (data.status === 'failed') {
+                                clearInterval(pollTimer.value);
+                                pollTimer.value = null;
+                                const jobError = new Error(data.error || 'Query processing failed.');
+                                if (isRecord(data.debug)) jobError.debug = data.debug;
+                                onError(jobError);
+                                return;
+                            }
+
+                            if (Object.keys(data).some((key) => key !== 'status')) {
+                                throw new Error('The pending job payload contained unsupported fields.');
+                            }
 
                             if (attempts >= maxAttempts) {
                                 clearInterval(pollTimer.value);
-                                onError(new Error('Query timed out after 6 minutes'));
+                                pollTimer.value = null;
+                                onError(new Error('The search timed out after six minutes.'));
                             }
                         } catch (error) {
                             clearInterval(pollTimer.value);
+                            pollTimer.value = null;
                             onError(error);
                         }
                     }, 2000);
@@ -623,6 +716,10 @@
                         clearInterval(pollTimer.value);
                         pollTimer.value = null;
                     }
+                    if (progressTimer.value) {
+                        clearInterval(progressTimer.value);
+                        progressTimer.value = null;
+                    }
                     currentJobId.value = null;
                 }
 
@@ -631,31 +728,70 @@
                     window.location.href = '/';
                 }
 
+                function disclosureStatusLabel(status) {
+                    return status === 'disclosed' ? 'Disclosed' : 'Partially disclosed';
+                }
+
+                function disclosureStatusClass(status) {
+                    return status === 'disclosed' ? 'is-disclosed' : 'is-partial';
+                }
+
+                function evidenceSummaryLabel(count) {
+                    return count === 1 ? 'View evidence' : `View ${count} evidence passages`;
+                }
+
+                function handleProgressBreakpoint(event) {
+                    progressExpanded.value = !event.matches;
+                }
+
                 onMounted(() => {
+                    mobileProgressQuery.addEventListener('change', handleProgressBreakpoint);
+
                     const params = new URLSearchParams(window.location.search);
                     const jobId = params.get('job_id');
+                    const previewView = params.get('view');
 
                     if (jobId) {
                         showReportShell();
-                        pollResult(jobId, (data) => {
-                            renderReport(data);
-                        }, (error) => {
+                        pollResult(jobId, renderReport, (error) => {
                             renderReportError(error);
                             console.error('Search error:', error);
                         });
-                    } else if (params.get('view') === 'report' || window.location.hash === '#report') {
+                    } else if (previewView === 'report' || window.location.hash === '#report') {
                         renderReportPreview();
+                    } else if (previewView === 'legacy') {
+                        renderLegacyPreview();
                     } else {
-                        // No job ID and no preview mode - redirect to search
                         window.location.href = '/';
                     }
                 });
 
+                onBeforeUnmount(() => {
+                    cancelPolling();
+                    mobileProgressQuery.removeEventListener('change', handleProgressBreakpoint);
+                });
+
                 return {
+                    reportState,
                     reportStatus,
-                    reportContent,
+                    normalizedFeatures,
+                    overallAssessment,
+                    errorMessage,
+                    debugDetails,
+                    unsupportedMessage,
+                    activeStep,
+                    progressSteps,
+                    progressExpanded,
                     showNewSearch,
+                    analysisStatusLabel,
+                    assessmentStatusClass,
+                    assessmentText,
                     stepClass,
+                    progressStepStatus,
+                    disclosureStatusLabel,
+                    disclosureStatusClass,
+                    evidenceSummaryLabel,
+                    cancelPolling,
                     goToSearch
                 };
             }

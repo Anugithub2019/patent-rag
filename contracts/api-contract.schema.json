@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patentrag.local/contracts/api-contract.schema.json",
+  "title": "PatentRAG HTTP API contract",
+  "$defs": {
+    "nonEmptyText": { "type": "string", "minLength": 1, "pattern": "\\S" },
+    "queryRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text"],
+      "properties": { "text": { "$ref": "#/$defs/nonEmptyText" } }
+    },
+    "queryAccepted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["job_id"],
+      "properties": { "job_id": { "type": "string", "format": "uuid" } }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passage"],
+      "properties": {
+        "passage": { "$ref": "#/$defs/nonEmptyText" },
+        "location": { "$ref": "#/$defs/nonEmptyText" }
+      }
+    },
+    "match": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reference_id", "patent_id", "title", "status", "disclosure_summary", "evidence"],
+      "properties": {
+        "reference_id": { "$ref": "#/$defs/nonEmptyText" },
+        "patent_id": { "$ref": "#/$defs/nonEmptyText" },
+        "title": { "$ref": "#/$defs/nonEmptyText" },
+        "status": { "enum": ["disclosed", "partially_disclosed"] },
+        "disclosure_summary": { "$ref": "#/$defs/nonEmptyText" },
+        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+        "source_url": { "type": "string", "format": "uri", "pattern": "^https?://" }
+      }
+    },
+    "feature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["feature_id", "feature_text", "matches"],
+      "properties": {
+        "feature_id": { "type": "integer", "minimum": 1 },
+        "feature_text": { "$ref": "#/$defs/nonEmptyText" },
+        "matches": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/match" },
+          "x-uniqueBy": "reference_id"
+        }
+      }
+    },
+    "analysisV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "overall_assessment", "features"],
+      "properties": {
+        "schema_version": { "const": 2 },
+        "overall_assessment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "summary"],
+          "properties": {
+            "status": { "enum": ["no_single_reference_match", "potentially_anticipated", "inconclusive"] },
+            "summary": { "$ref": "#/$defs/nonEmptyText" }
+          }
+        },
+        "features": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/feature" },
+          "x-uniqueBy": "feature_id"
+        }
+      }
+    },
+    "pendingResult": {
+      "type": "object", "additionalProperties": false, "required": ["status"],
+      "properties": { "status": { "const": "pending" } }
+    },
+    "completeResult": {
+      "type": "object", "additionalProperties": false, "required": ["status", "data"],
+      "properties": { "status": { "const": "complete" }, "data": { "$ref": "#/$defs/analysisV2" } }
+    },
+    "failedResult": {
+      "type": "object", "additionalProperties": false, "required": ["status", "error"],
+      "properties": {
+        "status": { "const": "failed" },
+        "error": { "$ref": "#/$defs/nonEmptyText" },
+        "debug": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["validation_error", "upstream_response"],
+          "properties": {
+            "validation_error": { "$ref": "#/$defs/nonEmptyText" },
+            "upstream_response": true
+          }
+        }
+      }
+    },
+    "jobResult": {
+      "oneOf": [
+        { "$ref": "#/$defs/pendingResult" },
+        { "$ref": "#/$defs/completeResult" },
+        { "$ref": "#/$defs/failedResult" }
+      ]
+    }
+  }
+}

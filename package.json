@@ -1,6 +1,7 @@
 {
   "scripts": {
-    "build": "mkdir -p public && cp frontend/search.html public/index.html && cp frontend/report.html public/report.html",
+    "build": "mkdir -p public && cp frontend/search.html public/index.html && cp frontend/report.html public/report.html && cp frontend/styles.css public/styles.css",
+    "test": "python3 -m unittest discover -s tests -p 'test_*.py' && node tests/test_contract_js.js && node tests/test_search_js.js",
     "start": "python servers/flask_server.py",
     "start:node": "node servers/node_server.mjs",
     "celery:worker": "celery -A backend.celery_app worker --loglevel=info",
