@@ -24,8 +24,8 @@
     --color-danger-bg: #f2f2f2;
     --color-info: #000000;
     --color-info-bg: #f2f2f2;
-    --font-serif: "Helvetica Neue", Helvetica, Arial, sans-serif;
-    --font-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --font-serif: "Segoe UI", "Segoe UI Variable Text", Arial, sans-serif;
+    --font-sans: "Segoe UI", "Segoe UI Variable Text", Arial, sans-serif;
     --shadow-small: 0 2px 10px rgba(0, 0, 0, 0.06);
     --shadow-medium: 0 14px 36px rgba(0, 0, 0, 0.09);
     --radius-small: 2px;
@@ -42,6 +42,7 @@
 
 * {
     margin: 0;
+    font-family: var(--font-sans);
 }
 
 html {
@@ -1506,7 +1507,7 @@ svg.brand-mark {
     border-radius: var(--radius-small);
     background: var(--color-surface);
     color: var(--color-ink);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-family: var(--font-sans);
     font-size: 0.76rem;
     line-height: 1.5;
     white-space: pre-wrap;

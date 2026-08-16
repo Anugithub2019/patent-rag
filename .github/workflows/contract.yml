@@ -1,4 +1,4 @@
-name: API contract
+name: Contract and architecture
 
 on:
   pull_request:
@@ -10,6 +10,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check architecture synchronization (pull request)
+        if: github.event_name == 'pull_request'
+        env:
+          ARCHITECTURE_BASE: ${{ github.event.pull_request.base.sha }}
+          ARCHITECTURE_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          python3 scripts/check_architecture_sync.py
+          --base "$ARCHITECTURE_BASE"
+          --head "$ARCHITECTURE_HEAD"
+          --merge-base
+      - name: Check architecture synchronization (push)
+        if: github.event_name == 'push'
+        env:
+          ARCHITECTURE_BASE: ${{ github.event.before }}
+          ARCHITECTURE_HEAD: ${{ github.event.after }}
+        run: >-
+          python3 scripts/check_architecture_sync.py
+          --base "$ARCHITECTURE_BASE"
+          --head "$ARCHITECTURE_HEAD"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

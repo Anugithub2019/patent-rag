@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="PatentRAG prior-art and novelty analysis report">
     <title>PatentRAG | Analysis Brief</title>
-    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/styles.css?v=segoe-ui-1">
 </head>
 <body>
     <div id="app" v-cloak>
@@ -226,6 +226,8 @@
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
     <script>
         const { createApp, ref, computed, onMounted, onBeforeUnmount } = Vue;
+        const SESSION_REPORT_KEY = 'patentrag:report:analysis-v2';
+        const SESSION_REPORT_SOURCE = 'session-v2';
 
         createApp({
             setup() {
@@ -566,6 +568,26 @@
                             : JSON.stringify(upstreamResponse, null, 2));
                 }
 
+                function consumeSessionReport() {
+                    let serializedReport;
+                    try {
+                        serializedReport = window.sessionStorage.getItem(SESSION_REPORT_KEY);
+                        window.sessionStorage.removeItem(SESSION_REPORT_KEY);
+                    } catch {
+                        throw new Error('This browser could not access the temporary report data. Return to the search page and try again.');
+                    }
+
+                    if (!serializedReport) {
+                        throw new Error('The temporary report data is no longer available. Return to the search page and run the search again.');
+                    }
+
+                    try {
+                        return JSON.parse(serializedReport);
+                    } catch {
+                        throw new Error('The temporary report data could not be read. Return to the search page and run the search again.');
+                    }
+                }
+
                 function renderReportPreview() {
                     showReportShell();
                     renderReport({
@@ -749,6 +771,7 @@
 
                     const params = new URLSearchParams(window.location.search);
                     const jobId = params.get('job_id');
+                    const resultSource = params.get('result_source');
                     const previewView = params.get('view');
 
                     if (jobId) {
@@ -757,6 +780,14 @@
                             renderReportError(error);
                             console.error('Search error:', error);
                         });
+                    } else if (resultSource === SESSION_REPORT_SOURCE) {
+                        showReportShell();
+                        try {
+                            renderReport(consumeSessionReport());
+                        } catch (error) {
+                            renderReportError(error);
+                            console.error('Stored report error:', error);
+                        }
                     } else if (previewView === 'report' || window.location.hash === '#report') {
                         renderReportPreview();
                     } else if (previewView === 'legacy') {

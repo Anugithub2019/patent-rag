@@ -12,6 +12,10 @@
 
 set -uo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PROJECT_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+CONFIG_FILE="$PROJECT_ROOT/kg_builder/uploader_config.json"
+
 # ---------- CONFIG: edit these ----------
 PROJECTS=(
   "fivepatents"
@@ -27,7 +31,9 @@ QUESTIONS=(
 )
 
 MODE="graph_vector_fulltext"
-API_BASE="https://kg-api.hashtag.ai"
+CONFIGURED_NAMESPACE=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["namespace"])' "$CONFIG_FILE")
+NAMESPACE=${HASHTAG_NAMESPACE:-$CONFIGURED_NAMESPACE}
+API_BASE=${HASHTAG_BASE_URL:-https://kg-api.hashtag.ai}
 # -----------------------------------------
 
 API_KEY="${HASHTAG_API_KEY:-}"
@@ -49,7 +55,7 @@ json_escape() {
 for PROJECT in "${PROJECTS[@]}"; do
   PROJECT_DIR="$OUT_DIR/$PROJECT"
   mkdir -p "$PROJECT_DIR"
-  API_URL="${API_BASE}/${PROJECT}/query"
+  API_URL="${API_BASE%/}/${NAMESPACE}/${PROJECT}/query"
 
   echo "=== Project: $PROJECT ===" | tee -a "$SUMMARY_FILE"
 

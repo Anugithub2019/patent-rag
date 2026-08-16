@@ -1,12 +1,31 @@
 import os
+import json
+from pathlib import Path
+from urllib.parse import quote
 from dotenv import load_dotenv
 
 load_dotenv()
 
 API_KEY = os.getenv("HASHTAG_API_KEY")
-HASHTAG_BASE_URL = "https://kg-api.hashtag.ai"
-HASH_TAG_PROJECT = "test_two_patents"
-BASE_URL = f"{HASHTAG_BASE_URL}/{HASH_TAG_PROJECT}"
+HASHTAG_BASE_URL = os.getenv("HASHTAG_BASE_URL", "https://kg-api.hashtag.ai").rstrip("/")
+
+_UPLOADER_CONFIG_PATH = Path(__file__).resolve().parents[1] / "kg_builder" / "uploader_config.json"
+with _UPLOADER_CONFIG_PATH.open(encoding="utf-8") as _config_file:
+    _uploader_config = json.load(_config_file)
+
+HASHTAG_NAMESPACE = os.getenv("HASHTAG_NAMESPACE", _uploader_config["namespace"]).strip()
+CORPUS_NAME = os.getenv("HASHTAG_CORPUS_NAME", _uploader_config["corpus_name"]).strip()
+if not HASHTAG_NAMESPACE:
+    raise ValueError("Hashtag namespace must not be empty")
+if not CORPUS_NAME:
+    raise ValueError("Hashtag corpus name must not be empty")
+
+# Backwards-compatible alias for code that still refers to a Hashtag project.
+HASH_TAG_PROJECT = CORPUS_NAME
+BASE_URL = (
+    f"{HASHTAG_BASE_URL}/{quote(HASHTAG_NAMESPACE, safe='')}"
+    f"/{quote(CORPUS_NAME, safe='')}"
+)
 
 # Redis & Celery configuration
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")

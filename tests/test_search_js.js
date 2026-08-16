@@ -22,19 +22,24 @@ async function run() {
     process.env.DEBUG_INVALID_REPORTS = 'true';
 
     try {
-        global.fetch = async () => ({
+        let requestedUrl;
+        global.fetch = async (url) => {
+            requestedUrl = url;
+            return ({
             ok: true,
             text: async () => JSON.stringify({
                 schema_version: 2,
                 overall_assessment: { status: 'inconclusive', summary: 'Insufficient context.' },
                 features: [{ feature_id: 0, feature_text: 'A feature', matches: [] }]
             })
-        });
+            });
+        };
 
         const res = mockResponse();
         await handler({ method: 'POST', body: { text: 'A technology disclosure' } }, res);
 
         assert.equal(res.statusCode, 502);
+        assert.equal(requestedUrl, 'https://kg-api.hashtag.ai/rsongnov/patents_5530/query');
         assert.equal(res.headers['Cache-Control'], 'no-store');
         assert.match(res.body.error, /^Backend returned an invalid report:/);
         assert.doesNotMatch(res.body.error, /Could not connect/);

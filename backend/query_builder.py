@@ -1,29 +1,9 @@
-"""
-Query builder for PatentRAG.
-
-Wraps raw user input into a well-formed question for the Hashtag AI API.
-If the user only provides a technology description, it is automatically
-prepended with a novelty analysis prompt.
-"""
-
-# Prefixes that indicate the user input is already a complete question
-_QUESTION_PREFIXES = (
-    "is there", "what", "find", "summarize",
-    "does", "can", "how", "why", "which", "who",
-    "list", "tell", "show", "give", "identify",
-    "describe", "explain", "compare", "evaluate",
-    "search", "retrieve", "do", "are", "will"
-)
+"""Build the structured novelty-analysis prompt sent to Hashtag AI."""
 
 
 def build_query(user_text: str) -> str:
     """
-    Build a complete query string from raw user input.
-
-    If the input already looks like a question (starts with a known
-    question prefix), it is returned unchanged. Otherwise the input
-    is treated as a technology description and wrapped in a novelty
-    analysis prompt.
+    Wrap a non-empty technology disclosure in the required Schema v2 prompt.
 
     Args:
         user_text: The raw text entered by the user.

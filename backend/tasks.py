@@ -10,7 +10,7 @@ Defines the background task that:
 import json
 import hashlib
 from backend.celery_app import app
-from backend.config import CACHE_TTL, DEBUG_INVALID_REPORTS
+from backend.config import BASE_URL, CACHE_TTL, DEBUG_INVALID_REPORTS
 from backend.hashtag_client import query_hashtag
 from backend.similarity import process_query_response
 from backend.contract import ContractError, make_job_result, validate_analysis
@@ -33,11 +33,13 @@ def process_query(self, job_id: str, text: str):
     Returns:
         The parsed response dict with results, answer, sources, etc.
     """
-    # Compute a cache key based on the query text for deduplication
-    query_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    # Include the Hashtag destination so switching corpora cannot return a
+    # cached report produced from a different knowledge base.
+    cache_material = f"{BASE_URL}\0{text}"
+    query_hash = hashlib.sha256(cache_material.encode("utf-8")).hexdigest()
     # Version the cache namespace so legacy result payloads can never be
     # returned as Schema v2 reports.
-    cache_key = f"query_cache:v3:{query_hash}"
+    cache_key = f"query_cache:v4:{query_hash}"
 
     # Check if we already have a cached result for this exact query
     cached = redis_client.get(cache_key)

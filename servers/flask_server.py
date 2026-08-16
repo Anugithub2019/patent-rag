@@ -125,37 +125,16 @@ def search_prior_art():
     New clients should use POST /api/query + GET /api/result/<job_id> instead.
     """
     import requests
+    from backend.hashtag_client import query_hashtag
     from backend.similarity import process_query_response
 
     try:
         data = request.get_json()
-        if not data or "text" not in data:
+        if not data or not isinstance(data.get("text"), str) or not data["text"].strip():
             return jsonify({"error": "Missing 'text' field in request body"}), 400
 
-        document_text = data["text"]
-
-        from backend.config import API_KEY, BASE_URL
-        HEADERS = {
-            "x-api-key": API_KEY,
-            "Content-Type": "application/json"
-        }
-
-        payload = {"question": document_text}
-
-        resp = requests.post(
-            f"{BASE_URL}/query",
-            headers=HEADERS,
-            json=payload,
-            timeout=120
-        )
-
-        if resp.status_code != 200:
-            return jsonify({
-                "error": f"Backend API returned status {resp.status_code}",
-                "detail": resp.text
-            }), resp.status_code
-
-        result_data = resp.json()
+        document_text = data["text"].strip()
+        result_data = query_hashtag(document_text)
         parsed = process_query_response(result_data)
 
         return jsonify(parsed)

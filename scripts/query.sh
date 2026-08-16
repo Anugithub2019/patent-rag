@@ -5,9 +5,15 @@ set -euo pipefail
 
 # Config
 API_KEY=${HASHTAG_API_KEY:-}
-#PROJECT="patentrag"
-PROJECT="test_two_patents"
-API_URL="https://kg-api.hashtag.ai/${PROJECT}/query"
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PROJECT_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+CONFIG_FILE="$PROJECT_ROOT/kg_builder/uploader_config.json"
+CONFIGURED_NAMESPACE=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["namespace"])' "$CONFIG_FILE")
+CONFIGURED_PROJECT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["corpus_name"])' "$CONFIG_FILE")
+NAMESPACE=${HASHTAG_NAMESPACE:-$CONFIGURED_NAMESPACE}
+PROJECT=${HASHTAG_CORPUS_NAME:-$CONFIGURED_PROJECT}
+API_BASE=${HASHTAG_BASE_URL:-https://kg-api.hashtag.ai}
+API_URL="${API_BASE%/}/${NAMESPACE}/${PROJECT}/query"
 MODE="graph_vector_fulltext"
 QUESTION="Find patents that include this technology and give me its PATENT_ID. List all features of this technology. If equavalent feature exists in found patents, list it too. Finally, evaluate if there is any novelty in this technology:"
 TECHNOLOGY_DESCRIPTION="A battery disconnect assembly for an electric vehicle comprises a first power contact arranged in a low-voltage supply line and configurable between a conductive state and a non-conductive state. A second power contact is provided in the supply circuit and is movable between a normally closed condition and an open condition. The assembly further includes an interlock contact connected to a high-voltage interlock loop (HVIL), the interlock contact being movable between an enabled state that maintains the HVIL circuit and a disabled state that breaks the HVIL circuit, thereby causing shutdown of the vehicle's high-voltage propulsion system. A manually operable disconnect handle is coupled to the interlock contact and is configured to disable the HVIL circuit before isolation of the battery. A control and monitoring module detects interruption of the HVIL circuit and, in response, commands the first and second power contacts to transition to their open states, electrically isolating the onboard battery from vehicle loads."

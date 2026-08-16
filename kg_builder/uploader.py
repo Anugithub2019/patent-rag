@@ -4,14 +4,21 @@ import json
 import hashlib
 import time
 import requests
-from backend.config import API_KEY, BASE_URL
+from urllib.parse import quote
+from backend.config import API_KEY, HASHTAG_BASE_URL, HASHTAG_NAMESPACE, CORPUS_NAME
 from kg_builder import db
 
 with open(os.path.join(os.path.dirname(__file__), "uploader_config.json")) as f:
     _config = json.load(f)
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INPUT_DIR = _config["input_dir"]
-CORPUS_NAME = _config["corpus_name"]
+if not os.path.isabs(INPUT_DIR):
+    INPUT_DIR = os.path.join(PROJECT_ROOT, INPUT_DIR)
+
+CORPUS_DESTINATION = (
+    f"{quote(HASHTAG_NAMESPACE, safe='')}/{quote(CORPUS_NAME, safe='')}"
+)
 
 HEADERS = {
     "x-api-key": API_KEY,
@@ -25,28 +32,31 @@ def read_txt(path):
         return f.read()
 
 
-def file_hash(path: str) -> str:
-    """Return SHA-256 hash of the file contents."""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        while True:
-            chunk = f.read(65536)
-            if not chunk:
-                break
-            h.update(chunk)
-    return h.hexdigest()
+def text_hash(text: str) -> str:
+    """Return a SHA-256 hash of the exact UTF-8 text sent to Hashtag."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 # ---------- 2. post API ----------
-def upload(text, corpus=CORPUS_NAME):
-    url = f"{BASE_URL}/process"
+def upload(text, corpus=CORPUS_NAME, namespace=HASHTAG_NAMESPACE):
+    namespace = namespace.strip()
+    corpus = corpus.strip()
+    if not namespace:
+        raise ValueError("Namespace must not be empty")
+    if not corpus:
+        raise ValueError("Corpus name must not be empty")
+
+    url = (
+        f"{HASHTAG_BASE_URL}/{quote(namespace, safe='')}"
+        f"/{quote(corpus, safe='')}/process"
+    )
 
     payload = {
         "type": "text",
         "url": text
     }
 
-    r = requests.post(url, headers=HEADERS, json=payload)
+    r = requests.post(url, headers=HEADERS, json=payload, timeout=300)
 
     if r.status_code != 200:
         print("❌ Upload failed:", r.status_code, r.text)
@@ -71,65 +81,77 @@ def main():
 
         path = os.path.join(INPUT_DIR, file)
 
+        print(f"\n[{i+1}/{len(files)}] Processing: {file}")
+
         try:
-            print(f"\n[{i+1}/{len(files)}] Processing: {file}")
-
-            # ----- content hash (dedup check) -----
-            content_hash = file_hash(path)
-            file_size = os.path.getsize(path)
-
-            if db.is_uploaded(content_hash):
-                print(f"⏭ Already uploaded, skipping")
-                skip_count += 1
-                continue
-
+            # Read once so the hash always describes the exact text being posted.
             text = read_txt(path)
-
             if not text.strip():
                 print("⚠ Empty file, skipped")
                 continue
 
-            ok = upload(text)
-
-            if ok:
-                db.mark_uploaded(
-                    file_name=file,
-                    file_path=path,
-                    file_hash=content_hash,
-                    file_size=file_size,
-                    status="success"
-                )
-                print("✅ Uploaded:", file)
-                success_count += 1
-            else:
-                db.mark_uploaded(
-                    file_name=file,
-                    file_path=path,
-                    file_hash=content_hash,
-                    file_size=file_size,
-                    status="failed",
-                    error_message=f"HTTP error from API"
-                )
-                print("❌ Failed:", file)
-                fail_count += 1
-
-        except Exception as e:
-            print("❌ Error:", file, str(e))
-            # Still record the failure so it isn't retried blindly
-            try:
-                content_hash = file_hash(os.path.join(INPUT_DIR, file))
-                file_size = os.path.getsize(os.path.join(INPUT_DIR, file))
-                db.mark_uploaded(
-                    file_name=file,
-                    file_path=os.path.join(INPUT_DIR, file),
-                    file_hash=content_hash,
-                    file_size=file_size,
-                    status="failed",
-                    error_message=str(e)
-                )
-            except Exception:
-                pass
+            encoded_text = text.encode("utf-8")
+            content_hash = text_hash(text)
+            file_size = len(encoded_text)
+            claim = db.claim_upload(
+                file_name=file,
+                file_path=path,
+                file_hash=content_hash,
+                file_size=file_size,
+                corpus=CORPUS_DESTINATION,
+            )
+        except Exception as exc:
+            print("❌ Could not prepare upload:", file, str(exc))
             fail_count += 1
+            continue
+
+        if not claim.acquired:
+            if claim.reason == "already_uploaded":
+                print("⏭ Already uploaded, skipping")
+            else:
+                print("⏭ Upload already in progress, skipping")
+            skip_count += 1
+            continue
+
+        try:
+            ok = upload(text)
+        except Exception as exc:
+            try:
+                db.finish_upload(
+                    claim.token,
+                    status="failed",
+                    error_message=str(exc),
+                )
+            except Exception as db_exc:
+                print("❌ Could not record upload failure:", str(db_exc))
+            print("❌ Upload error:", file, str(exc))
+            fail_count += 1
+            continue
+
+        if not ok:
+            try:
+                db.finish_upload(
+                    claim.token,
+                    status="failed",
+                    error_message="HTTP error from API",
+                )
+            except Exception as exc:
+                print("❌ Could not record upload failure:", str(exc))
+            print("❌ Failed:", file)
+            fail_count += 1
+            continue
+
+        try:
+            db.finish_upload(claim.token, status="success")
+        except Exception as exc:
+            # Keep the claim in processing state. A later run can recover it
+            # after the lease expires without immediately duplicating the POST.
+            print("❌ Uploaded but could not record completion:", file, str(exc))
+            fail_count += 1
+            continue
+
+        print("✅ Uploaded:", file)
+        success_count += 1
 
     print("\n===== DONE =====")
     print("Success:", success_count)
@@ -137,42 +159,44 @@ def main():
     print("Failed:", fail_count)
 
     # Print summary from DB
-    stats = db.get_stats()
+    stats = db.get_stats(CORPUS_DESTINATION)
     print(f"\n📊 DB Stats — Total attempts: {stats['total_attempts']}, "
           f"Successful: {stats['success_count']}, "
           f"Failed: {stats['fail_count']}, "
+          f"In progress: {stats['in_progress_count']}, "
+          f"Abandoned: {stats['abandoned_count']}, "
           f"Unique files: {stats['unique_files']}")
 
 
-def show_uploaded():
+def show_uploaded(corpus=None):
     """Print a table of all successfully uploaded files."""
-    rows = db.list_uploaded()
+    rows = db.list_uploaded(corpus)
     if not rows:
         print("No uploaded files found.")
         return
 
-    print(f"\n{'File Name':<40} {'Size':>10}  {'Uploaded At'}")
-    print("-" * 70)
+    print(f"\n{'File Name':<40} {'Size':>10}  {'Destination':<36} {'Uploaded At'}")
+    print("-" * 108)
     for r in rows:
         ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r["uploaded_at"]))
         size_kb = r["file_size"] / 1024
-        print(f"{r['file_name']:<40} {size_kb:>8.1f} KB  {ts}")
+        print(f"{r['file_name']:<40} {size_kb:>8.1f} KB  {r['corpus']:<36} {ts}")
     print(f"\nTotal: {len(rows)} file(s)")
 
 
-def show_failed():
+def show_failed(corpus=None):
     """Print a table of all failed upload attempts."""
-    rows = db.list_failed()
+    rows = db.list_failed(corpus)
     if not rows:
         print("No failed uploads found.")
         return
 
-    print(f"\n{'File Name':<40} {'Error':<50}  {'Attempted At'}")
-    print("-" * 100)
+    print(f"\n{'File Name':<40} {'Destination':<36} {'Error':<50}  {'Attempted At'}")
+    print("-" * 138)
     for r in rows:
         ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r["uploaded_at"]))
         err = (r["error_message"] or "N/A")[:48]
-        print(f"{r['file_name']:<40} {err:<50}  {ts}")
+        print(f"{r['file_name']:<40} {r['corpus']:<36} {err:<50}  {ts}")
     print(f"\nTotal: {len(rows)} failed attempt(s)")
 
 
@@ -191,6 +215,8 @@ if __name__ == "__main__":
             print(f"Total attempts: {stats['total_attempts']}")
             print(f"Successful:     {stats['success_count']}")
             print(f"Failed:         {stats['fail_count']}")
+            print(f"In progress:    {stats['in_progress_count']}")
+            print(f"Abandoned:      {stats['abandoned_count']}")
             print(f"Unique files:   {stats['unique_files']}")
             if stats['last_upload']:
                 ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stats['last_upload']))

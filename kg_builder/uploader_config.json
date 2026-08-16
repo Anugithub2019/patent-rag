@@ -1,4 +1,5 @@
 {
-  "input_dir": "patents_5",
-  "corpus_name": "patents_json_5"
+  "input_dir": "data/patents_5530",
+  "namespace": "rsongnov",
+  "corpus_name": "patents_5530"
 }
