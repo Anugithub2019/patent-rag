@@ -22,8 +22,11 @@ class UploaderConfigurationTests(unittest.TestCase):
         )
         self.assertEqual(mock_post.call_args.kwargs["timeout"], 300)
 
-    def test_configured_input_directory_exists(self):
-        self.assertTrue(Path(uploader.INPUT_DIR).is_dir())
+    def test_configured_input_directory_resolves_from_project_root(self):
+        self.assertEqual(
+            Path(uploader.INPUT_DIR),
+            Path(uploader.PROJECT_ROOT) / "data" / "patents_5530",
+        )
 
     @patch("kg_builder.uploader.requests.post")
     def test_upload_uses_corpus_as_url_path(self, mock_post):
