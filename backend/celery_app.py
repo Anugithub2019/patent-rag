@@ -11,6 +11,7 @@ app = Celery(
     "patentrag",
     broker=CELERY_BROKER_URL,
     backend=CELERY_RESULT_BACKEND,
+    include=("backend.tasks",),
 )
 
 # Optional Celery configuration

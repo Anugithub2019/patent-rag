@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="PatentRAG prior-art and novelty analysis">
     <title>Novelty Search | PatentRAG</title>
-    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/styles.css?v=segoe-ui-1">
 </head>
 <body>
     <div id="app" class="site-frame" v-cloak>
@@ -169,6 +169,8 @@
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
     <script>
         const { createApp, ref, computed, nextTick } = Vue;
+        const SESSION_REPORT_KEY = 'patentrag:report:analysis-v2';
+        const SESSION_REPORT_SOURCE = 'session-v2';
 
         createApp({
             setup() {
@@ -309,6 +311,52 @@
                     nextTick(() => documentInput.value?.focus());
                 }
 
+                async function responseErrorMessage(response, fallbackMessage) {
+                    const errorData = await response.json().catch(() => null);
+                    return errorData && typeof errorData.error === 'string' && errorData.error.trim()
+                        ? errorData.error.trim()
+                        : fallbackMessage;
+                }
+
+                async function submitSynchronousSearch(text) {
+                    const response = await fetch('/api/search', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(await responseErrorMessage(
+                            response,
+                            `Search service returned ${response.status}`
+                        ));
+                    }
+
+                    let report;
+                    try {
+                        report = await response.json();
+                    } catch {
+                        throw new Error('The search service returned an unreadable report. Please try again.');
+                    }
+
+                    if (!report || typeof report !== 'object' || Array.isArray(report) || report.schema_version !== 2) {
+                        throw new Error('The search service returned an unsupported report format. Please try again.');
+                    }
+
+                    try {
+                        window.sessionStorage.setItem(SESSION_REPORT_KEY, JSON.stringify(report));
+                    } catch {
+                        try {
+                            window.sessionStorage.removeItem(SESSION_REPORT_KEY);
+                        } catch {
+                            // Storage may be disabled entirely; retain the original user-facing error below.
+                        }
+                        throw new Error('This browser could not temporarily store the completed report. Check storage permissions and try again.');
+                    }
+
+                    window.location.href = `report.html?result_source=${encodeURIComponent(SESSION_REPORT_SOURCE)}`;
+                }
+
                 async function submitQuery() {
                     const text = documentText.value.trim();
                     if (!text) {
@@ -327,9 +375,16 @@
                             body: JSON.stringify({ text })
                         });
 
+                        if (response.status === 404 || response.status === 405) {
+                            await submitSynchronousSearch(text);
+                            return;
+                        }
+
                         if (!response.ok) {
-                            const errorData = await response.json().catch(() => ({}));
-                            throw new Error(errorData.error || `Server returned ${response.status}`);
+                            throw new Error(await responseErrorMessage(
+                                response,
+                                `Server returned ${response.status}`
+                            ));
                         }
 
                         const data = await response.json();

@@ -1,0 +1,18 @@
+{
+  "description": "Repository completion checks for Codex.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/check_architecture_sync.py\" --hook",
+            "timeout": 15,
+            "statusMessage": "Checking architecture synchronization"
+          }
+        ]
+      }
+    ]
+  }
+}
+

@@ -1,209 +1,379 @@
 # Patent RAG System — Architecture
 
-> **Living document** — This file is automatically updated whenever the project structure changes. Last updated: 2026-04-08.
+> **Living document** — Last reviewed against the repository on 2026-08-14. Record every architecture-relevant source or configuration change here, including a dated Change Log entry; note explicitly when an internal change leaves the architecture unchanged.
 
 ## Overview
 
-This project is a Retrieval-Augmented Generation (RAG) system that helps determine whether a new invention is already covered by existing patents. It uses the **Hashtag AI knowledge graph API** to search patent databases using natural language invention descriptions, identify similar patents and prior art, compare invention features with patent claims, and generate explainable novelty assessments.
+Patent RAG is a Retrieval-Augmented Generation (RAG) application for patent prior-art and novelty research. It sends a technology disclosure to the Hashtag AI knowledge-graph API, asks for a structured comparison against retrieved patents, validates the response against a strict Schema v2 contract, and renders an evidence-oriented feature report.
 
-## Directory Structure
+The repository has two related pipelines:
 
-```
+1. **Knowledge-graph ingestion** uploads prepared patent text files to Hashtag AI and records destination-aware upload history in SQLite.
+2. **Search and reporting** accepts a technology disclosure, queries the configured Hashtag corpus, validates the returned analysis, and displays it through either an asynchronous local flow or a synchronous Vercel flow.
+
+## Core Repository Structure
+
+```text
 patent-rag/
-├── api/                          # Vercel serverless functions
-│   ├── health.js                 # Health check endpoint
-│   └── search.js                 # Synchronous search proxy to Hashtag /query API
-│
-├── backend/                      # Query processing (frontend search pipeline)
-│   ├── __init__.py               # Package marker
-│   ├── celery_app.py             # Celery app config (Redis broker/backend)
-│   ├── config.py                 # Shared config (API key, base URL, Redis/Celery)
-│   ├── hashtag_client.py         # Hashtag /query API client
-│   ├── query_builder.py          # Wraps raw user input into a well-formed question
-│   ├── similarity.py             # Parses/transforms Hashtag API response
-│   └── tasks.py                  # Celery async query task
-│
-├── kg_builder/                   # Knowledge graph building (file upload pipeline)
-│   ├── __init__.py               # Package marker
-│   ├── db.py                     # SQLite tracking for upload dedup/status
-│   ├── uploader.py               # Uploads patent files to Hashtag /process API
-│   └── uploader_config.json      # Uploader config (input dir, corpus name)
-│
-├── frontend/                     # Static HTML frontend
-│   ├── report.html               # Report page
-│   └── search.html               # Main search page
-│
-├── servers/                      # Local development servers
-│   ├── flask_server.py           # Flask server (Redis + Celery async queries)
-│   └── node_server.mjs           # Node.js server (in-memory job store)
-│
-├── scripts/                      # Utility scripts
-│   ├── extract_answers.py        # Extract answers from test results → xlsx
-│   ├── query.sh                  # Quick Hashtag API query tester
-│   ├── run_tests.sh              # Test multiple projects against questions
-│   └── xml_split.py              # Split USPTO XML into per-patent JSON files
-│
+├── .codex/
+│   └── hooks.json                  # Stop hook enforcing architecture synchronization
+├── .github/
+│   └── workflows/
+│       └── contract.yml           # CI: architecture guard, tests, and frontend build
+├── api/                            # Vercel serverless functions and JavaScript contract code
+│   ├── contract.js                # Schema v2 prompt, normalization, parsing, and validation
+│   ├── health.js                  # GET health endpoint
+│   └── search.js                  # Synchronous Hashtag query endpoint for Vercel
+├── backend/                        # Python query, contract, Redis, and Celery implementation
+│   ├── __init__.py
+│   ├── celery_app.py              # Celery app; explicitly includes backend.tasks
+│   ├── config.py                  # Shared Hashtag, Redis, Celery, cache, and debug config
+│   ├── contract.py                # Python Schema v2 and HTTP-boundary validation
+│   ├── hashtag_client.py          # Hashtag /query HTTP client
+│   ├── query_builder.py           # Strict Schema v2 analysis prompt
+│   ├── similarity.py              # Hashtag-response parsing into validated Schema v2
+│   └── tasks.py                   # Celery query task, Redis job state, and query cache
+├── contracts/
+│   └── api-contract.schema.json   # Canonical public request/result/analysis schema
+├── frontend/
+│   ├── report.html                # Async polling and one-time synchronous-result rendering
+│   ├── search.html                # Text/file input and runtime-aware submission
+│   └── styles.css                 # Shared search/report styles
+├── kg_builder/                    # Hashtag ingestion and local upload coordination
+│   ├── __init__.py
+│   ├── db.py                      # Versioned SQLite claims and attempt history
+│   ├── uploader.py                # .txt uploader for Hashtag /process
+│   └── uploader_config.json       # Input directory and default Hashtag destination
+├── scripts/
+│   ├── extract_answers.py         # Test-result JSON to tests/answers.xlsx
+│   ├── query.sh                   # One-off Hashtag query helper
+│   ├── run_tests.sh               # Multi-corpus exploratory query runner
+│   ├── check_architecture_sync.py # Working-tree/CI architecture drift guard
+│   └── xml_split.py               # USPTO bulk XML to per-patent JSON
+├── servers/
+│   ├── flask_server.py            # Redis + Celery local HTTP runtime
+│   └── node_server.mjs            # In-memory local HTTP runtime
+├── tests/
+│   ├── fixtures/
+│   │   ├── analysis-v2.invalid-duplicate.json
+│   │   ├── analysis-v2.invalid-enum.json
+│   │   └── analysis-v2.valid.json
+│   ├── test_backend_runtime.py    # Celery discovery and Flask synchronous-path coverage
+│   ├── test_architecture_sync.py  # Architecture drift-guard unit tests
+│   ├── test_contract.py           # Python contract tests
+│   ├── test_contract_js.js        # JavaScript contract tests using shared fixtures
+│   ├── test_db.py                 # SQLite migration, lease, recovery, and reporting tests
+│   ├── test_frontend_fallback_js.js # Vercel fallback/sessionStorage handoff tests
+│   ├── test_search_js.js          # Vercel search validation/error-path tests
+│   └── test_uploader.py           # Uploader destination and claim-workflow tests
 ├── .gitignore
-├── ARCHITECTURE.md               # This file
-├── package.json                  # npm scripts (build, start, celery, redis)
+├── AGENTS.md                       # Durable repository instructions for coding agents
+├── ARCHITECTURE.md
+├── package.json                   # Build, test, local-server, worker, and Redis scripts
 ├── README.md
-└── vercel.json                   # Vercel deployment config
+├── requirements.txt              # Python runtime/test dependencies
+├── upload_records.db             # Existing root SQLite upload state (runtime artifact)
+└── vercel.json                    # Vercel build command and public output directory
 ```
+
+`public/` is generated by `npm run build`. `data/`, `.env`, Python caches, and the live `upload_records.db` are local/runtime artifacts and are ignored for new Git additions.
+
+## Shared Schema v2 Contract
+
+### Public shapes
+
+`contracts/api-contract.schema.json` is the canonical public contract. The Python and JavaScript implementations mirror its rules at runtime.
+
+| Shape | Required form |
+|---|---|
+| Query request | `{ "text": "<non-empty disclosure>" }` with no additional fields |
+| Async acceptance | `{ "job_id": "<UUID>" }` |
+| Pending result | `{ "status": "pending" }` |
+| Complete result | `{ "status": "complete", "data": <analysisV2> }` |
+| Failed result | `{ "status": "failed", "error": "<message>" }`, with optional `debug` |
+
+A valid `analysisV2` object has exactly these top-level fields:
+
+```json
+{
+  "schema_version": 2,
+  "overall_assessment": {
+    "status": "no_single_reference_match",
+    "summary": "Non-empty assessment text"
+  },
+  "features": [
+    {
+      "feature_id": 1,
+      "feature_text": "A material technology feature",
+      "matches": [
+        {
+          "reference_id": "stable-reference-id",
+          "patent_id": "US...",
+          "title": "Patent title",
+          "status": "disclosed",
+          "disclosure_summary": "How the reference discloses the feature",
+          "evidence": [
+            { "passage": "Supporting passage", "location": "Claim 1" }
+          ],
+          "source_url": "https://example.test/patent"
+        }
+      ]
+    }
+  ]
+}
+```
+
+The allowed overall statuses are `no_single_reference_match`, `potentially_anticipated`, and `inconclusive`. Match status is either `disclosed` or `partially_disclosed`. `location` and `source_url` are optional; all other displayed match fields are required and non-empty.
+
+### Prompt, normalization, and validation
+
+Both `backend/query_builder.py` and `api/contract.js` always wrap the disclosure in a strict Schema v2 instruction. The prompt requires JSON only, positive integer feature IDs, every material feature, complete reference metadata, citable evidence, no invented values, and `inconclusive` when the retrieved context is insufficient.
+
+The parsers accept either a top-level Schema v2 object or a Hashtag response whose `answer` contains the object. A string answer may be plain JSON or wrapped in a JSON Markdown fence. Before strict validation, the normalizer performs only narrow LLM-output cleanup:
+
+- omit a whole match when a required match field is missing, null, or blank;
+- omit blank optional `source_url` and evidence `location` fields;
+- drop evidence entries whose required passage is missing or blank.
+
+Validation then rejects unsupported or extra fields, empty required text, invalid enums or URLs, non-positive/non-integer feature IDs, duplicate feature IDs, duplicate reference IDs within one feature, and conflicting patent metadata for a reused reference ID. It does not silently coerce a legacy narrative response into Schema v2.
+
+`backend/contract.py` enforces the Python HTTP/job boundaries and analysis semantics. `api/contract.js` provides the equivalent JavaScript prompt/parser/validator for the Node and Vercel runtimes. The report page validates the essential Schema v2 structure again before rendering.
+
+### Invalid-report diagnostics
+
+Invalid upstream analysis is rejected before it is presented as a successful report. Set `DEBUG_INVALID_REPORTS=true` to attach:
+
+```json
+{
+  "validation_error": "<contract failure>",
+  "upstream_response": "<raw Hashtag response>"
+}
+```
+
+to supported failed-job or synchronous error payloads. The report page displays the raw upstream response when this debug object is present. Leave the flag disabled in normal or production operation because upstream responses can contain sensitive disclosure or retrieval content.
 
 ## Component Breakdown
 
-### `backend/` — Query Processing
+### `backend/` — Python Query and Contract Pipeline
 
-Handles the **frontend search pipeline**: takes user query text, sends it to the Hashtag `/query` API, and parses the response for display.
-
-| File | Purpose |
+| File | Responsibility |
 |---|---|
-| `config.py` | Loads `HASHTAG_API_KEY` from env, defines `BASE_URL` (`https://kg-api.hashtag.ai/test_two_patents`), Redis URL, Celery broker/backend URLs, cache TTL. |
-| `query_builder.py` | Wraps raw user input into a well-formed question. If input already starts with a question word (e.g., "what", "find", "is there"), it's used as-is. Otherwise it's wrapped as: `"Is there any novelty in this technology? Technology draft: {text}"`. |
-| `hashtag_client.py` | Thin wrapper around the Hashtag `/query` endpoint. Handles auth headers (`x-api-key`), request formatting, and error handling. |
-| `similarity.py` | Parses the raw Hashtag API response into a structured, frontend-friendly format. Extracts chunk details, sources, answer, and contexts. Sorts results by similarity score descending. |
-| `tasks.py` | Celery background task for async query processing. Computes a cache key from query text for deduplication, calls `query_hashtag()`, parses via `process_query_response()`, stores result in Redis. |
-| `celery_app.py` | Celery app instance using Redis as both message broker and result backend. |
+| `config.py` | Loads `.env`, requires `HASHTAG_API_KEY`, reads the default namespace/corpus from `kg_builder/uploader_config.json`, applies environment overrides, constructs the encoded Hashtag base URL, and defines Redis/Celery/cache/debug settings. |
+| `query_builder.py` | Always builds the strict Schema v2 novelty-analysis prompt from the submitted disclosure. |
+| `hashtag_client.py` | Sends the built prompt to `{BASE_URL}/query` with `x-api-key`, JSON content type, and a 120-second timeout. |
+| `contract.py` | Parses and narrowly normalizes Hashtag output, validates Schema v2 semantics, validates query/job envelopes, and constructs valid job results. |
+| `similarity.py` | Thin compatibility boundary whose query-processing path delegates to `parse_analysis_response(...)` and returns validated Schema v2. |
+| `tasks.py` | Runs the asynchronous query, validates cached/current results, and stores pending/complete/failed job envelopes in Redis. Its versioned cache key includes both the Hashtag destination and query text. |
+| `celery_app.py` | Uses Redis as broker/backend and explicitly includes `backend.tasks`, ensuring `backend.tasks.process_query` is registered when the documented worker command starts. |
 
-### `kg_builder/` — Knowledge Graph Building
+### `api/` — Vercel Runtime
 
-Handles the **file upload pipeline**: reads patent text files, uploads them to the Hashtag `/process` API to build the knowledge graph, and tracks upload status in SQLite.
-
-| File | Purpose |
+| File | Responsibility |
 |---|---|
-| `uploader.py` | Main uploader script. Reads `.txt` files from the input directory, computes SHA-256 hash for dedup, uploads each file to the Hashtag `/process` endpoint, and records results in SQLite. Supports `--list`, `--failed`, `--stats` CLI flags. |
-| `db.py` | SQLite database for tracking upload attempts. Tables: `upload_records` (file_name, file_path, file_hash, file_size, corpus, status, uploaded_at, error_message). Database file lives at project root: `upload_records.db`. |
-| `uploader_config.json` | Configuration for the uploader: `input_dir` (e.g., `patents_5`) and `corpus_name` (e.g., `patents_json_5`). |
+| `contract.js` | JavaScript Schema v2 prompt, parser, normalizer, and validator shared by Vercel and the Node server. |
+| `search.js` | `POST /api/search`; validates input, calls Hashtag synchronously, validates Schema v2, returns the analysis, and maps timeout/upstream/contract failures to HTTP errors. Responses use `Cache-Control: no-store`. |
+| `health.js` | `GET /api/health`; returns `{ "status": "ok" }`. |
 
-### `api/` — Vercel Serverless Functions
+Vercel does not provide the Redis-backed `/api/query` or `/api/result/<job_id>` routes. Its frontend therefore uses the synchronous fallback described below.
 
-| File | Purpose |
+### `servers/flask_server.py` — Redis + Celery Local Runtime
+
+The Flask server serves the three frontend assets and exposes:
+
+| Route | Behavior |
 |---|---|
-| `search.js` | POST endpoint that proxies search queries to the Hashtag `/query` API. Includes query building, response parsing, and 120s timeout handling. |
-| `health.js` | GET endpoint returning `{ status: 'ok' }`. |
+| `GET /` | Serves `frontend/search.html`. |
+| `GET /report.html` | Serves the report page. |
+| `GET /styles.css` | Serves the shared stylesheet. |
+| `POST /api/query` | Validates `{text}`, writes a pending Redis job, queues `process_query`, and returns HTTP 202 with a UUID `job_id`. |
+| `GET /api/result/<job_id>` | Returns the validated pending/complete/failed Redis envelope, or 404. |
+| `POST /api/search` | Synchronous compatibility route using the same Hashtag client, structured prompt, and Schema v2 parser as the async task. |
+| `GET /api/health` | Reports server status and whether Redis responds. |
 
-### `servers/` — Local Development Servers
+All Flask `/api/` responses receive `Cache-Control: no-store`.
 
-| File | Purpose |
-|---|---|
-| `flask_server.py` | Flask server with Redis + Celery async query processing. Endpoints: `GET /` (serve frontend), `GET /report.html`, `POST /api/query` (returns job_id), `GET /api/result/<job_id>` (poll result), `POST /api/search` (legacy sync), `GET /api/health`. |
-| `node_server.mjs` | Node.js HTTP server with in-memory job store. Endpoints: `GET /`, `GET /report.html`, `GET /api/health`, `POST /api/search` (sync), `POST /api/query` (async), `GET /api/result/<job_id>`. |
+### `servers/node_server.mjs` — In-Memory Local Runtime
 
-### `frontend/` — Static HTML
+The Node server exposes the same frontend, health, synchronous search, async submission, and result-polling route set as Flask. It has no Redis or Celery dependency: jobs live in an in-memory `Map`, the Hashtag request starts as a background promise, and each job expires after one hour. Restarting the process loses outstanding jobs and their results.
 
-| File | Purpose |
-|---|---|
-| `search.html` | Main search page for submitting patent novelty queries. |
-| `report.html` | Report page for displaying search results. |
+Both `/api/query` and `/api/search` use `api/contract.js` to build and validate Schema v2. API JSON responses use `Cache-Control: no-store`.
 
-### `scripts/` — Utility Scripts
+### `frontend/` — Search and Report UI
 
-| File | Purpose |
-|---|---|
-| `run_tests.sh` | Tests multiple Hashtag AI projects against the same set of questions. Saves results to `tests/<project>/q<N>.json`. |
-| `query.sh` | Quick shell script to test a single query against the Hashtag API. |
-| `xml_split.py` | Splits a USPTO bulk XML file into individual per-patent JSON files. |
-| `extract_answers.py` | Extracts the `answer` field from test result JSON files and compiles them into an Excel spreadsheet. |
+`search.html` accepts pasted text or a local text file. Submission is runtime-aware:
 
-## Data Flow
+1. It first posts `{text}` to `/api/query`.
+2. A successful async response redirects to `report.html?job_id=<UUID>`.
+3. Only an HTTP 404 or 405 from `/api/query` triggers a synchronous retry to `/api/search`; other async errors remain visible on the search page.
+4. A synchronous response must be a JSON object with `schema_version === 2`. It is serialized into `sessionStorage` under `patentrag:report:analysis-v2`, then the browser redirects to `report.html?result_source=session-v2`.
 
-### Query Flow (Frontend Search)
+`report.html` has two result sources:
 
-```
-User Input (text)
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Frontend (search.html)                                     │
-│  POST /api/query  →  { "text": "..." }                      │
-└─────────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Server (flask_server.py or node_server.mjs)                │
-│  1. Generate job_id, store "pending" in Redis/in-memory     │
-│  2. Enqueue Celery task (Flask) or fire async fetch (Node)  │
-│  3. Return 202 { job_id }                                   │
-└─────────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────┐
-│  backend/tasks.py (Celery) or node_server.mjs               │
-│  1. Check Redis cache for identical query                   │
-│  2. Call backend.hashtag_client.query_hashtag(text)         │
-│  3. Parse response via backend.similarity.process_query_response() │
-│  4. Store result in Redis under job:<job_id>                │
-└─────────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Hashtag AI API                                             │
-│  POST {BASE_URL}/query                                      │
-│  Headers: x-api-key, Content-Type: application/json         │
-│  Body: { "question": "<built query>" }                      │
-└─────────────────────────────────────────────────────────────┘
-    │
-    ▼
-Frontend polls GET /api/result/<job_id> until status = "complete"
+- with `job_id`, it polls `/api/result/<job_id>` every two seconds until complete, failed, missing, or timed out;
+- with `result_source=session-v2`, it reads and immediately removes the one-time session value, parses it, and sends it through the existing Schema v2 report validator/renderer.
+
+Missing, corrupt, or unavailable session storage renders the report error state. A synchronous API or storage failure on the search page does not redirect. Legacy/unversioned results are shown as unsupported instead of being interpreted as trustworthy feature comparisons.
+
+### `kg_builder/` — Knowledge-Graph Ingestion
+
+`uploader.py` resolves the configured input directory relative to the project root, reads sorted `.txt` files, skips blank files, hashes the exact UTF-8 text being sent, and posts with a five-minute per-request timeout:
+
+```http
+POST {HASHTAG_BASE_URL}/{namespace}/{corpus}/process
+x-api-key: ...
+Content-Type: application/json
+
+{ "type": "text", "url": "<file content>" }
 ```
 
-### Knowledge Graph Build Flow (File Upload)
+Before the remote POST, the uploader atomically claims the `(file_hash, destination)` pair in SQLite. A successful claim prevents concurrent duplicate work; a prior success skips the file; failed claims can be retried; and processing claims older than 15 minutes can be recovered. Completing a claim appends a success/failure row to `upload_records` and updates the current `upload_claims` state.
 
-```
-Patent Text Files (.txt)
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────┐
-│  kg_builder/uploader.py                                     │
-│  1. Read file, compute SHA-256 hash                         │
-│  2. Check kg_builder/db.py is_uploaded(hash) for dedup      │
-│  3. POST to Hashtag /process API                            │
-│  4. Record result in SQLite (upload_records table)          │
-└─────────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Hashtag AI API                                             │
-│  POST {BASE_URL}/process                                    │
-│  Headers: x-api-key, Content-Type: application/json         │
-│  Body: { "type": "text", "url": "<file content>" }          │
-└─────────────────────────────────────────────────────────────┘
+`db.py` maintains schema version 2, migrates the legacy upload-history table, backfills current claim state, uses `BEGIN IMMEDIATE` for write coordination, enables WAL, applies a 30-second SQLite busy timeout to application connections, and provides destination-aware statistics/lists. The database path is `upload_records.db` at the project root.
+
+Run the uploader as a package so repository imports resolve correctly:
+
+```sh
+python3 -m kg_builder.uploader
+python3 -m kg_builder.uploader --list
+python3 -m kg_builder.uploader --failed
+python3 -m kg_builder.uploader --stats
 ```
 
-## External Dependencies
+The default ingest and application query clients share `kg_builder/uploader_config.json` and the same `HASHTAG_BASE_URL`, `HASHTAG_NAMESPACE`, and `HASHTAG_CORPUS_NAME` override names.
 
-| Service | Purpose | Config |
+### `scripts/` — Data and Exploratory Utilities
+
+| File | Behavior |
+|---|---|
+| `query.sh` | Sends one configured-corpus Hashtag query and prints either a readable answer/info view or raw JSON. Requires `curl`, `jq`, Python, and `HASHTAG_API_KEY`. |
+| `run_tests.sh` | Runs a fixed editable list of questions against the fixed editable `PROJECTS` array and writes `./tests/<project>/q<N>.json` plus `./tests/summary.txt`, relative to the current working directory. Its corpora are intentionally independent of the application corpus. |
+| `extract_answers.py` | Reads the project/question arrays from `scripts/run_tests.sh`, reads result JSON under `tests/` by default, and writes `tests/answers.xlsx` with `openpyxl`. Paths are overridable positional arguments. |
+| `xml_split.py` | Reads the hard-coded USPTO `ipa251211.xml` filename and writes structured per-patent `.json` files to a hard-coded `patents_json/` directory, both relative to the current working directory. |
+
+The XML splitter is a preparation utility, not a connected stage of the uploader: it produces `.json`, while the configured uploader consumes prepared `.txt` files from `data/patents_5`. Any JSON-to-upload-text transformation is currently a separate manual step.
+
+## Runtime Data Flows
+
+### Flask + Redis + Celery (asynchronous)
+
+```text
+search.html
+  POST /api/query {text}
+      │
+      ├─ Flask validates the request and writes job:<UUID> = pending to Redis
+      ├─ Flask queues backend.tasks.process_query
+      └─ HTTP 202 {job_id}
+             │
+             ▼
+Celery worker (backend.tasks explicitly registered)
+  ├─ derive destination-aware query_cache:v4 key
+  ├─ validate and reuse a cache hit, or
+  ├─ build strict Schema v2 prompt → POST Hashtag /query
+  ├─ normalize and validate Schema v2
+  └─ write job:<UUID> = complete/failed and cache valid analysis
+             │
+             ▼
+report.html polls GET /api/result/<UUID> until terminal state
+```
+
+Redis job and query-cache entries use `CACHE_TTL` (one hour by default). The Celery task is configured for up to three retries with a ten-second default delay for retryable failures.
+
+### Node local server (asynchronous, process-local)
+
+```text
+search.html → POST /api/query → HTTP 202 {job_id}
+                    │
+                    └─ background Hashtag fetch + Schema v2 validation
+                                      │
+report.html → GET /api/result/<job_id> ┘
+```
+
+The state is in memory, is not shared across Node processes, and expires after one hour.
+
+### Vercel (synchronous fallback)
+
+```text
+search.html
+  POST /api/query
+      └─ 404/405 because the async route is not deployed
+             │
+             ▼
+  POST /api/search {text}
+      └─ Vercel function → Hashtag /query → Schema v2 validation
+             │
+             ▼
+  sessionStorage[patentrag:report:analysis-v2] = validated response
+             │
+             ▼
+  report.html?result_source=session-v2
+      └─ read once → remove → validate and render
+```
+
+No job ID, cross-request job store, Redis, or Celery is required in the Vercel flow.
+
+### Knowledge-graph build
+
+```text
+prepared .txt file
+  → read once and SHA-256 hash exact posted text
+  → atomically claim (hash, namespace/corpus) in upload_records.db
+  → POST Hashtag /process
+  → transactionally finish claim and append terminal attempt
+```
+
+## External Services and Configuration
+
+| Setting | Default/source | Used by |
 |---|---|---|
-| **Hashtag AI API** | Knowledge graph storage, query, and processing | `HASHTAG_API_KEY` env var; `BASE_URL = https://kg-api.hashtag.ai/test_two_patents` |
-| **Redis** | Celery broker/result backend, job status storage, query cache | `REDIS_URL` env var (default: `redis://localhost:6379/0`) |
-| **Celery** | Async task queue for query processing | `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND` |
-| **SQLite** | Upload dedup/status tracking | `upload_records.db` at project root |
+| `HASHTAG_API_KEY` | Required environment variable; commonly loaded from `.env` locally | All Hashtag query/upload paths |
+| `HASHTAG_BASE_URL` | `https://kg-api.hashtag.ai` | Python, Node, Vercel, uploader, and shell query scripts |
+| `HASHTAG_NAMESPACE` | `kg_builder/uploader_config.json` (`rsongnov`) | Hashtag destination; optional environment override |
+| `HASHTAG_CORPUS_NAME` | `kg_builder/uploader_config.json` (`patents_5530`) | Hashtag destination; optional environment override |
+| Uploader `input_dir` | `data/patents_5530` in `kg_builder/uploader_config.json` | Knowledge-graph uploader |
+| `REDIS_URL` | `redis://localhost:6379/0` | Flask job state, Celery default broker/backend, query cache |
+| `CELERY_BROKER_URL` | Falls back to `REDIS_URL` | Celery broker |
+| `CELERY_RESULT_BACKEND` | Falls back to `REDIS_URL` | Celery result backend |
+| `CACHE_TTL` | `3600` seconds | Redis job and query-cache lifetime |
+| `DEBUG_INVALID_REPORTS` | `false` | Optional raw invalid-upstream diagnostics |
+| `PORT` | `3000` | Flask and Node local servers |
+| Vue 3 browser bundle | `https://unpkg.com/vue@3/dist/vue.global.prod.js` | Search and report pages at browser runtime |
 
-## Key Configuration
+Hashtag destination path components are URL-encoded by the primary Python and JavaScript application clients. The exploratory shell scripts interpolate their path components directly, so use URL-safe override values with those scripts.
 
-| Setting | Value | Location |
+## Build, Run, Test, and CI
+
+### npm scripts
+
+| Script | Exact command | Purpose |
 |---|---|---|
-| Hashtag API base URL | `https://kg-api.hashtag.ai/test_two_patents` | `backend/config.py` |
-| API key | `HASHTAG_API_KEY` env var | `.env` file |
-| Redis URL | `redis://localhost:6379/0` (default) | `backend/config.py` |
-| Cache TTL | 3600 seconds (1 hour) | `backend/config.py` |
-| Uploader input dir | `patents_5` | `kg_builder/uploader_config.json` |
-| Uploader corpus name | `patents_json_5` | `kg_builder/uploader_config.json` |
-| Flask server port | 3000 (default) | `servers/flask_server.py` |
-| Node server port | 3000 (default) | `servers/node_server.mjs` |
+| `build` | `mkdir -p public && cp frontend/search.html public/index.html && cp frontend/report.html public/report.html && cp frontend/styles.css public/styles.css` | Build Vercel static assets and map the search page to `/`. |
+| `test` | `python3 -m unittest discover -s tests -p 'test_*.py' && node tests/test_contract_js.js && node tests/test_search_js.js && node tests/test_frontend_fallback_js.js` | Run Python tests, shared JavaScript contract fixtures, Vercel search tests, and frontend fallback/session-handoff tests. |
+| `start` | `python servers/flask_server.py` | Start the Flask local server. |
+| `start:node` | `node servers/node_server.mjs` | Start the Node local server. |
+| `celery:worker` | `celery -A backend.celery_app worker --loglevel=info` | Start a worker with `backend.tasks` explicitly included by the Celery app. |
+| `redis:start` | `brew services start redis` | Start Redis through Homebrew. |
 
-## npm Scripts
+`requirements.txt` declares Redis, Celery, Requests, python-dotenv, Flask, and openpyxl. There is no npm dependency manifest beyond the scripts in `package.json`; the frontend loads Vue 3 from unpkg at browser runtime.
 
-| Script | Command | Purpose |
-|---|---|---|
-| `build` | `mkdir -p public && cp frontend/*.html public/` | Build static frontend for Vercel |
-| `start` | `python servers/flask_server.py` | Start Flask server |
-| `start:node` | `node servers/node_server.mjs` | Start Node.js server |
-| `celery:worker` | `celery -A backend.celery_app worker --loglevel=info` | Start Celery worker |
-| `redis:start` | `brew services start redis` | Start Redis |
+`vercel.json` runs `npm run build` and publishes `public/`; files under `api/` are deployed as serverless functions.
+
+`.github/workflows/contract.yml` runs for pull requests and pushes to `main` on Python 3.12 and Node 24. It checks architecture synchronization, installs `requirements.txt`, supplies a CI test API key, runs `npm test`, and verifies `npm run build`.
+
+### Architecture synchronization guard
+
+The repository uses three complementary safeguards:
+
+1. Root `AGENTS.md` requires coding agents to read and update this document when source/configuration changes affect architecture.
+2. `.codex/hooks.json` runs `scripts/check_architecture_sync.py --hook` on the Codex `Stop` event. If architecture-relevant working-tree files changed without this file, the hook asks Codex to continue and update it. Project hooks must be trusted by the user before they run.
+3. CI compares the pull-request merge base to its head, or the push event's direct before/after range, and fails when architecture-relevant committed files change without `ARCHITECTURE.md` in the same range.
+
+The guard covers known application, ingestion, server, contract, script, deployment, workflow, and agent-configuration paths. A source/configuration suffix fallback also catches new top-level component directories instead of silently allowing an unclassified source tree. Test, generated `public/`, runtime `data/`, and general prose changes do not require an architecture edit. Git paths are read in NUL-delimited form, and renames are evaluated as a deletion plus an addition. The Stop hook requests one automatic correction pass without creating an infinite retry loop; CI remains the hard merge gate. The checker verifies co-change, while review remains responsible for documentation accuracy and quality.
 
 ## Change Log
 
 | Date | Change |
 |---|---|
-| 2026-04-08 | Moved knowledge graph building files from `backend/` to new `kg_builder/` folder. `backend/` now contains only query processing files. |
+| 2026-08-15 | Pointed the knowledge-graph uploader at `data/patents_5530` and the `rsongnov/patents_5530` corpus, and increased its per-request timeout from two minutes to five minutes. |
+| 2026-08-14 | Added durable `AGENTS.md` guidance, a Codex completion hook, and CI enforcement to keep architecture-relevant changes synchronized with this document. |
+| 2026-08-14 | Documented the strict cross-runtime Schema v2 contract, debug behavior, explicit Celery task discovery, separate Flask/Node/Vercel flows, Vercel session-storage fallback, shared Hashtag destination, versioned upload leases, and current build/test/CI structure. |
+| 2026-04-08 | Moved knowledge-graph building files from `backend/` to `kg_builder/`; `backend/` now owns the query/contract runtime. |
