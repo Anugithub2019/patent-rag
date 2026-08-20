@@ -7,6 +7,7 @@ from unittest.mock import patch
 os.environ.setdefault("HASHTAG_API_KEY", "test-key")
 
 from backend.celery_app import app as celery_app
+from backend.config import BASE_URL
 from servers.flask_server import app as flask_app
 
 
@@ -36,6 +37,9 @@ class CeleryTaskRegistrationTests(unittest.TestCase):
 
 
 class FlaskLegacySearchTests(unittest.TestCase):
+    def test_backend_destination_comes_from_backend_config(self):
+        self.assertEqual(BASE_URL, "https://kg-api.hashtag.ai/rsongnov/patents_5530")
+
     @patch("backend.hashtag_client.requests.post")
     def test_search_uses_shared_structured_query_client(self, mock_post):
         upstream = deepcopy(VALID_ANALYSIS)

@@ -35,7 +35,7 @@
         "title": { "$ref": "#/$defs/nonEmptyText" },
         "status": { "enum": ["disclosed", "partially_disclosed"] },
         "disclosure_summary": { "$ref": "#/$defs/nonEmptyText" },
-        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+        "evidence": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/evidence" } },
         "source_url": { "type": "string", "format": "uri", "pattern": "^https?://" }
       }
     },
@@ -64,7 +64,7 @@
           "additionalProperties": false,
           "required": ["status", "summary"],
           "properties": {
-            "status": { "enum": ["no_single_reference_match", "potentially_anticipated", "inconclusive"] },
+            "status": { "enum": ["novelty_indicated", "novelty_not_found", "inconclusive"] },
             "summary": { "$ref": "#/$defs/nonEmptyText" }
           }
         },

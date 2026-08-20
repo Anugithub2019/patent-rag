@@ -76,6 +76,20 @@ class ContractTests(unittest.TestCase):
             ):
                 validate_analysis(analysis)
 
+    def test_novelty_verdict_must_match_cross_feature_evidence(self):
+        analysis = fixture("analysis-v2.valid.json")
+        anticipating_match = json.loads(json.dumps(analysis["features"][0]["matches"][0]))
+        analysis["features"][1]["matches"] = [anticipating_match]
+        with self.assertRaisesRegex(ContractError, "novelty_indicated conflicts"):
+            validate_analysis(analysis)
+
+        analysis["overall_assessment"]["status"] = "novelty_not_found"
+        validate_analysis(analysis)
+
+        analysis["features"][1]["matches"][0]["status"] = "partially_disclosed"
+        with self.assertRaisesRegex(ContractError, "novelty_not_found requires"):
+            validate_analysis(analysis)
+
 
 class FlaskFlowTests(unittest.TestCase):
     def test_blank_query_is_rejected(self):

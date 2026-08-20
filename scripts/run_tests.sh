@@ -14,7 +14,7 @@ set -uo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
-CONFIG_FILE="$PROJECT_ROOT/kg_builder/uploader_config.json"
+CONFIG_FILE="$PROJECT_ROOT/backend/hashtag_config.json"
 
 # ---------- CONFIG: edit these ----------
 PROJECTS=(
