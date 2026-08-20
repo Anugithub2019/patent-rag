@@ -92,7 +92,7 @@ def _validate_analysis_shape(analysis: Any) -> None:
     assessment = analysis["overall_assessment"]
     _require_record(assessment, "overall_assessment")
     _exact_keys(assessment, {"status", "summary"}, "overall_assessment")
-    if assessment["status"] not in {"no_single_reference_match", "potentially_anticipated", "inconclusive"}:
+    if assessment["status"] not in {"novelty_indicated", "novelty_not_found", "inconclusive"}:
         raise ContractError("overall_assessment.status is unsupported")
     _require_text(assessment["summary"], "overall_assessment.summary")
     features = analysis["features"]
@@ -119,8 +119,8 @@ def _validate_analysis_shape(analysis: Any) -> None:
                 _require_text(match[key], f"{match_path}.{key}")
             if match["status"] not in {"disclosed", "partially_disclosed"}:
                 raise ContractError(f"{match_path}.status is unsupported")
-            if not isinstance(match["evidence"], list):
-                raise ContractError(f"{match_path}.evidence must be an array")
+            if not isinstance(match["evidence"], list) or not match["evidence"]:
+                raise ContractError(f"{match_path}.evidence must be a non-empty array")
             for evidence_index, evidence in enumerate(match["evidence"]):
                 evidence_path = f"{match_path}.evidence[{evidence_index}]"
                 _require_record(evidence, evidence_path)
@@ -140,6 +140,7 @@ def _validate_analysis_shape(analysis: Any) -> None:
 def _validate_semantics(analysis: Dict[str, Any]) -> None:
     feature_ids = set()
     reference_metadata = {}
+    fully_disclosed_by_feature = []
     for feature in analysis["features"]:
         feature_id = feature["feature_id"]
         if feature_id in feature_ids:
@@ -147,6 +148,7 @@ def _validate_semantics(analysis: Dict[str, Any]) -> None:
         feature_ids.add(feature_id)
 
         reference_ids = set()
+        fully_disclosed = set()
         for match in feature["matches"]:
             reference_id = match["reference_id"]
             if reference_id in reference_ids:
@@ -156,6 +158,16 @@ def _validate_semantics(analysis: Dict[str, Any]) -> None:
             if reference_id in reference_metadata and reference_metadata[reference_id] != metadata:
                 raise ContractError(f"conflicting metadata for reference_id: {reference_id}")
             reference_metadata[reference_id] = metadata
+            if match["status"] == "disclosed":
+                fully_disclosed.add(reference_id)
+        fully_disclosed_by_feature.append(fully_disclosed)
+
+    anticipating_references = set.intersection(*fully_disclosed_by_feature)
+    assessment_status = analysis["overall_assessment"]["status"]
+    if assessment_status == "novelty_not_found" and not anticipating_references:
+        raise ContractError("novelty_not_found requires one fully disclosing reference across every feature")
+    if assessment_status == "novelty_indicated" and anticipating_references:
+        raise ContractError("novelty_indicated conflicts with a fully disclosing reference across every feature")
 
 
 def validate_analysis(analysis: Any) -> Dict[str, Any]:

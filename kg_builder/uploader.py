@@ -5,11 +5,30 @@ import hashlib
 import time
 import requests
 from urllib.parse import quote
-from backend.config import API_KEY, HASHTAG_BASE_URL, HASHTAG_NAMESPACE, CORPUS_NAME
+from dotenv import load_dotenv
 from kg_builder import db
+
+load_dotenv()
 
 with open(os.path.join(os.path.dirname(__file__), "uploader_config.json")) as f:
     _config = json.load(f)
+
+API_KEY = os.getenv("HASHTAG_API_KEY")
+HASHTAG_BASE_URL = os.getenv(
+    "HASHTAG_BASE_URL", "https://kg-api.hashtag.ai"
+).rstrip("/")
+HASHTAG_NAMESPACE = os.getenv(
+    "UPLOADER_HASHTAG_NAMESPACE", _config["namespace"]
+).strip()
+CORPUS_NAME = os.getenv(
+    "UPLOADER_HASHTAG_CORPUS_NAME", _config["corpus_name"]
+).strip()
+if not API_KEY:
+    raise ValueError("HASHTAG_API_KEY not found in environment variables")
+if not HASHTAG_NAMESPACE:
+    raise ValueError("Uploader Hashtag namespace must not be empty")
+if not CORPUS_NAME:
+    raise ValueError("Uploader Hashtag corpus name must not be empty")
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INPUT_DIR = _config["input_dir"]
@@ -56,7 +75,7 @@ def upload(text, corpus=CORPUS_NAME, namespace=HASHTAG_NAMESPACE):
         "url": text
     }
 
-    r = requests.post(url, headers=HEADERS, json=payload, timeout=300)
+    r = requests.post(url, headers=HEADERS, json=payload, timeout=600)
 
     if r.status_code != 200:
         print("❌ Upload failed:", r.status_code, r.text)

@@ -1,6 +1,6 @@
 'use strict';
 
-const ASSESSMENTS = new Set(['no_single_reference_match', 'potentially_anticipated', 'inconclusive']);
+const ASSESSMENTS = new Set(['novelty_indicated', 'novelty_not_found', 'inconclusive']);
 const DISCLOSURES = new Set(['disclosed', 'partially_disclosed']);
 
 class ContractError extends Error {}
@@ -8,7 +8,7 @@ class ContractError extends Error {}
 function buildStructuredQuery(userText) {
     const text = String(userText).trim();
     return `Analyze the following technology disclosure against the retrieved patent context.
-Return ONLY valid JSON (no Markdown) using schema_version 2 with: overall_assessment {status, summary}; and a non-empty features array whose items contain feature_id, feature_text, and matches. feature_id must be a unique positive JSON integer numbered 1, 2, 3, and so on (never a quoted string such as "F1"). Each match must contain non-empty reference_id, patent_id, title, status (disclosed or partially_disclosed), disclosure_summary, and an evidence array of {passage, optional location}; source_url is optional and must be http(s). Never output null. Omit optional location and source_url fields when unavailable. If any required match metadata is unavailable, omit that entire match and use an empty matches array when no complete match remains. Assessment status must be no_single_reference_match, potentially_anticipated, or inconclusive. Include every material feature, do not invent evidence or reference metadata, and use inconclusive when context is insufficient.
+Return ONLY valid JSON (no Markdown) using schema_version 2 with: overall_assessment {status, summary}; and a non-empty features array whose items contain feature_id, feature_text, and matches. feature_id must be a unique positive JSON integer numbered 1, 2, 3, and so on (never a quoted string such as "F1"). Each match must contain non-empty reference_id, patent_id, title, status (disclosed or partially_disclosed), disclosure_summary, and an evidence array of {passage, optional location}; source_url is optional and must be http(s). Never output null. Omit optional location and source_url fields when unavailable. If any required match metadata is unavailable, omit that entire match and use an empty matches array when no complete match remains. Assessment status must be novelty_indicated, novelty_not_found, or inconclusive. Include every material feature and do not invent evidence or reference metadata. Use novelty_not_found only when one single reference has an evidence-supported disclosed (not partially_disclosed) match for every material feature. Use novelty_indicated only when the retrieved context is sufficient to assess every material feature and no single reference fully discloses all of them. Use inconclusive whenever the context or evidence is insufficient to apply either rule confidently. The summary must explain which rule was met, identify any single anticipation reference for novelty_not_found, and state that the result is limited to retrieved references rather than a legal conclusion.
 
 Technology disclosure:
 ${text}`;
@@ -116,7 +116,7 @@ function validateAnalysis(data) {
                 throw new ContractError(`conflicting metadata for reference_id: ${match.reference_id}`);
             }
             metadata.set(match.reference_id, currentMetadata);
-            if (!Array.isArray(match.evidence)) throw new ContractError(`${matchPath}.evidence must be an array`);
+            if (!Array.isArray(match.evidence) || !match.evidence.length) throw new ContractError(`${matchPath}.evidence must be a non-empty array`);
             match.evidence.forEach((evidence, evidenceIndex) => {
                 const evidencePath = `${matchPath}.evidence[${evidenceIndex}]`;
                 if (!record(evidence)) throw new ContractError(`${evidencePath} must be an object`);
@@ -132,6 +132,18 @@ function validateAnalysis(data) {
             }
         });
     });
+    const fullyDisclosedByFeature = data.features.map((feature) => new Set(
+        feature.matches.filter((match) => match.status === 'disclosed').map((match) => match.reference_id)
+    ));
+    const anticipatingReferences = [...fullyDisclosedByFeature[0]].filter(
+        (referenceId) => fullyDisclosedByFeature.every((referenceIds) => referenceIds.has(referenceId))
+    );
+    if (assessment.status === 'novelty_not_found' && !anticipatingReferences.length) {
+        throw new ContractError('novelty_not_found requires one fully disclosing reference across every feature');
+    }
+    if (assessment.status === 'novelty_indicated' && anticipatingReferences.length) {
+        throw new ContractError('novelty_indicated conflicts with a fully disclosing reference across every feature');
+    }
     return data;
 }
 

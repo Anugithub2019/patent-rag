@@ -249,14 +249,14 @@
                 const progressExpanded = ref(!mobileProgressQuery.matches);
 
                 const ASSESSMENT_LABELS = Object.freeze({
-                    no_single_reference_match: 'No single-reference match',
-                    potentially_anticipated: 'Potential anticipation',
+                    novelty_indicated: 'Novelty indicated',
+                    novelty_not_found: 'Novelty not found',
                     inconclusive: 'Inconclusive'
                 });
 
                 const ASSESSMENT_CLASSES = Object.freeze({
-                    no_single_reference_match: 'status-label-positive',
-                    potentially_anticipated: 'status-label-caution',
+                    novelty_indicated: 'status-label-positive',
+                    novelty_not_found: 'status-label-caution',
                     inconclusive: 'status-label-neutral'
                 });
 
@@ -393,9 +393,8 @@
                 }
 
                 function normalizeEvidence(rawEvidence, fieldName) {
-                    if (rawEvidence === undefined) return [];
-                    if (!Array.isArray(rawEvidence)) {
-                        throw new Error(`${fieldName} must be an array when provided.`);
+                    if (!Array.isArray(rawEvidence) || rawEvidence.length === 0) {
+                        throw new Error(`${fieldName} must be a non-empty array.`);
                     }
 
                     return rawEvidence.map((item, evidenceIndex) => {
@@ -514,6 +513,21 @@
                         };
                     });
 
+                    const fullyDisclosedByFeature = features.map((feature) => new Set(
+                        feature.matches
+                            .filter((match) => match.status === 'disclosed')
+                            .map((match) => match.referenceId)
+                    ));
+                    const anticipatingReferences = [...fullyDisclosedByFeature[0]].filter(
+                        (referenceId) => fullyDisclosedByFeature.every((referenceIds) => referenceIds.has(referenceId))
+                    );
+                    if (assessment.status === 'novelty_not_found' && anticipatingReferences.length === 0) {
+                        throw new Error('Novelty not found requires one fully disclosing reference across every feature.');
+                    }
+                    if (assessment.status === 'novelty_indicated' && anticipatingReferences.length > 0) {
+                        throw new Error('Novelty indicated conflicts with a fully disclosing reference across every feature.');
+                    }
+
                     return { assessment, features };
                 }
 
@@ -593,8 +607,8 @@
                     renderReport({
                         schema_version: 2,
                         overall_assessment: {
-                            status: 'no_single_reference_match',
-                            summary: 'The reviewed references disclose several individual elements of the battery disconnect assembly, but no single reference was identified as disclosing every analyzed feature in combination.'
+                            status: 'novelty_indicated',
+                            summary: 'Novelty is indicated because no single reviewed reference was identified as fully disclosing every material feature of the battery disconnect assembly. This assessment is limited to the retrieved references and is not a legal conclusion.'
                         },
                         features: [
                             {

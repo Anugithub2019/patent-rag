@@ -28,6 +28,7 @@ patent-rag/
 │   ├── __init__.py
 │   ├── celery_app.py              # Celery app; explicitly includes backend.tasks
 │   ├── config.py                  # Shared Hashtag, Redis, Celery, cache, and debug config
+│   ├── hashtag_config.json        # Default query namespace and corpus
 │   ├── contract.py                # Python Schema v2 and HTTP-boundary validation
 │   ├── hashtag_client.py          # Hashtag /query HTTP client
 │   ├── query_builder.py           # Strict Schema v2 analysis prompt
@@ -47,6 +48,7 @@ patent-rag/
 ├── scripts/
 │   ├── extract_answers.py         # Test-result JSON to tests/answers.xlsx
 │   ├── query.sh                   # One-off Hashtag query helper
+│   ├── query_config.json          # Standalone query helper destination
 │   ├── run_tests.sh               # Multi-corpus exploratory query runner
 │   ├── check_architecture_sync.py # Working-tree/CI architecture drift guard
 │   └── xml_split.py               # USPTO bulk XML to per-patent JSON
@@ -72,6 +74,7 @@ patent-rag/
 ├── package.json                   # Build, test, local-server, worker, and Redis scripts
 ├── README.md
 ├── requirements.txt              # Python runtime/test dependencies
+├── start_server.sh               # One-command Node local-server launcher
 ├── upload_records.db             # Local-only SQLite upload state (runtime artifact; Git-ignored)
 └── vercel.json                    # Vercel build command and public output directory
 ```
@@ -98,7 +101,7 @@ A valid `analysisV2` object has exactly these top-level fields:
 {
   "schema_version": 2,
   "overall_assessment": {
-    "status": "no_single_reference_match",
+    "status": "novelty_indicated",
     "summary": "Non-empty assessment text"
   },
   "features": [
@@ -123,11 +126,11 @@ A valid `analysisV2` object has exactly these top-level fields:
 }
 ```
 
-The allowed overall statuses are `no_single_reference_match`, `potentially_anticipated`, and `inconclusive`. Match status is either `disclosed` or `partially_disclosed`. `location` and `source_url` are optional; all other displayed match fields are required and non-empty.
+The allowed overall statuses are `novelty_indicated`, `novelty_not_found`, and `inconclusive`. `novelty_not_found` requires one retrieved reference to have an evidence-supported `disclosed` match for every material feature. `novelty_indicated` means the retrieved context is sufficient for every material feature but no one retrieved reference fully discloses them all. `inconclusive` is required when the retrieved context or evidence is insufficient. These are retrieval-limited research assessments, not legal conclusions. Match status is either `disclosed` or `partially_disclosed`. `location` and `source_url` are optional; all other displayed match fields are required and non-empty.
 
 ### Prompt, normalization, and validation
 
-Both `backend/query_builder.py` and `api/contract.js` always wrap the disclosure in a strict Schema v2 instruction. The prompt requires JSON only, positive integer feature IDs, every material feature, complete reference metadata, citable evidence, no invented values, and `inconclusive` when the retrieved context is insufficient.
+Both `backend/query_builder.py` and `api/contract.js` always wrap the disclosure in a strict Schema v2 instruction. The prompt requires JSON only, positive integer feature IDs, every material feature, complete reference metadata, citable evidence, no invented values, explicit evidence-based novelty verdict rules, and `inconclusive` when the retrieved context is insufficient. Verdict summaries must disclose the retrieval-limited, non-legal scope.
 
 The parsers accept either a top-level Schema v2 object or a Hashtag response whose `answer` contains the object. A string answer may be plain JSON or wrapped in a JSON Markdown fence. Before strict validation, the normalizer performs only narrow LLM-output cleanup:
 
@@ -135,7 +138,7 @@ The parsers accept either a top-level Schema v2 object or a Hashtag response who
 - omit blank optional `source_url` and evidence `location` fields;
 - drop evidence entries whose required passage is missing or blank.
 
-Validation then rejects unsupported or extra fields, empty required text, invalid enums or URLs, non-positive/non-integer feature IDs, duplicate feature IDs, duplicate reference IDs within one feature, and conflicting patent metadata for a reused reference ID. It does not silently coerce a legacy narrative response into Schema v2.
+Validation then rejects unsupported or extra fields, empty required text or evidence arrays, invalid enums or URLs, non-positive/non-integer feature IDs, duplicate feature IDs, duplicate reference IDs within one feature, conflicting patent metadata for a reused reference ID, and novelty verdicts that conflict with the cross-feature evidence. It does not silently coerce a legacy narrative response into Schema v2.
 
 `backend/contract.py` enforces the Python HTTP/job boundaries and analysis semantics. `api/contract.js` provides the equivalent JavaScript prompt/parser/validator for the Node and Vercel runtimes. The report page validates the essential Schema v2 structure again before rendering.
 
@@ -158,7 +161,8 @@ to supported failed-job or synchronous error payloads. The report page displays 
 
 | File | Responsibility |
 |---|---|
-| `config.py` | Loads `.env`, requires `HASHTAG_API_KEY`, reads the default namespace/corpus from `kg_builder/uploader_config.json`, applies environment overrides, constructs the encoded Hashtag base URL, and defines Redis/Celery/cache/debug settings. |
+| `config.py` | Loads `.env`, requires `HASHTAG_API_KEY`, reads the default query namespace/corpus from `backend/hashtag_config.json`, applies environment overrides, constructs the encoded Hashtag base URL, and defines Redis/Celery/cache/debug settings. |
+| `hashtag_config.json` | Owns the application query pipeline's default Hashtag namespace and corpus, independently of ingestion. |
 | `query_builder.py` | Always builds the strict Schema v2 novelty-analysis prompt from the submitted disclosure. |
 | `hashtag_client.py` | Sends the built prompt to `{BASE_URL}/query` with `x-api-key`, JSON content type, and a 120-second timeout. |
 | `contract.py` | Parses and narrowly normalizes Hashtag output, validates Schema v2 semantics, validates query/job envelopes, and constructs valid job results. |
@@ -216,7 +220,7 @@ Missing, corrupt, or unavailable session storage renders the report error state.
 
 ### `kg_builder/` — Knowledge-Graph Ingestion
 
-`uploader.py` resolves the configured input directory relative to the project root, reads sorted `.txt` files, skips blank files, hashes the exact UTF-8 text being sent, and posts with a five-minute per-request timeout:
+`uploader.py` resolves the configured input directory relative to the project root, reads sorted `.txt` files, skips blank files, hashes the exact UTF-8 text being sent, and posts with a ten-minute per-request timeout:
 
 ```http
 POST {HASHTAG_BASE_URL}/{namespace}/{corpus}/process
@@ -239,13 +243,13 @@ python3 -m kg_builder.uploader --failed
 python3 -m kg_builder.uploader --stats
 ```
 
-The default ingest and application query clients share `kg_builder/uploader_config.json` and the same `HASHTAG_BASE_URL`, `HASHTAG_NAMESPACE`, and `HASHTAG_CORPUS_NAME` override names.
+The ingestion destination is independent from the application query destination. The uploader reads `kg_builder/uploader_config.json` and accepts `UPLOADER_HASHTAG_NAMESPACE` and `UPLOADER_HASHTAG_CORPUS_NAME` overrides. It shares only `HASHTAG_API_KEY` and `HASHTAG_BASE_URL` with the query pipeline.
 
 ### `scripts/` — Data and Exploratory Utilities
 
 | File | Behavior |
 |---|---|
-| `query.sh` | Sends one configured-corpus Hashtag query and prints either a readable answer/info view or raw JSON. Requires `curl`, `jq`, Python, and `HASHTAG_API_KEY`. |
+| `query.sh` | Sends either its built-in novelty query or an unchanged free-form question supplied with `--question`, using the independent `scripts/query_config.json` destination. It prints a readable answer/info view or raw JSON. `QUERY_HASHTAG_NAMESPACE` and `QUERY_HASHTAG_CORPUS_NAME` can override the destination file. Requires `curl`, `jq`, Python, and `HASHTAG_API_KEY`. |
 | `run_tests.sh` | Runs a fixed editable list of questions against the fixed editable `PROJECTS` array and writes `./tests/<project>/q<N>.json` plus `./tests/summary.txt`, relative to the current working directory. Its corpora are intentionally independent of the application corpus. |
 | `extract_answers.py` | Reads the project/question arrays from `scripts/run_tests.sh`, reads result JSON under `tests/` by default, and writes `tests/answers.xlsx` with `openpyxl`. Paths are overridable positional arguments. |
 | `xml_split.py` | Reads the hard-coded USPTO `ipa251211.xml` filename and writes structured per-patent `.json` files to a hard-coded `patents_json/` directory, both relative to the current working directory. |
@@ -327,8 +331,12 @@ prepared .txt file
 |---|---|---|
 | `HASHTAG_API_KEY` | Required environment variable; commonly loaded from `.env` locally | All Hashtag query/upload paths |
 | `HASHTAG_BASE_URL` | `https://kg-api.hashtag.ai` | Python, Node, Vercel, uploader, and shell query scripts |
-| `HASHTAG_NAMESPACE` | `kg_builder/uploader_config.json` (`rsongnov`) | Hashtag destination; optional environment override |
-| `HASHTAG_CORPUS_NAME` | `kg_builder/uploader_config.json` (`patents_5530`) | Hashtag destination; optional environment override |
+| `HASHTAG_NAMESPACE` | `backend/hashtag_config.json` (`rsongnov`) | Application query destination; optional environment override |
+| `HASHTAG_CORPUS_NAME` | `backend/hashtag_config.json` (`patents_5530`) | Application query destination; optional environment override |
+| `QUERY_HASHTAG_NAMESPACE` | `scripts/query_config.json` (`rsongnov`) | Standalone query helper destination; optional environment override |
+| `QUERY_HASHTAG_CORPUS_NAME` | `scripts/query_config.json` (`patents_5530`) | Standalone query helper destination; optional environment override |
+| `UPLOADER_HASHTAG_NAMESPACE` | `kg_builder/uploader_config.json` (`rsongnov`) | Ingestion destination; optional environment override |
+| `UPLOADER_HASHTAG_CORPUS_NAME` | `kg_builder/uploader_config.json` (`patents_5530`) | Ingestion destination; optional environment override |
 | Uploader `input_dir` | `data/patents_5530` in `kg_builder/uploader_config.json` | Knowledge-graph uploader |
 | `REDIS_URL` | `redis://localhost:6379/0` | Flask job state, Celery default broker/backend, query cache |
 | `CELERY_BROKER_URL` | Falls back to `REDIS_URL` | Celery broker |
@@ -353,6 +361,8 @@ Hashtag destination path components are URL-encoded by the primary Python and Ja
 | `celery:worker` | `celery -A backend.celery_app worker --loglevel=info` | Start a worker with `backend.tasks` explicitly included by the Celery app. |
 | `redis:start` | `brew services start redis` | Start Redis through Homebrew. |
 
+For the dependency-light local runtime, run `./start_server.sh`. The launcher resolves the repository root regardless of the caller's current directory and executes `npm run start:node`; the server then listens on `PORT` or port 3000 by default.
+
 `requirements.txt` declares Redis, Celery, Requests, python-dotenv, Flask, and openpyxl. There is no npm dependency manifest beyond the scripts in `package.json`; the frontend loads Vue 3 from unpkg at browser runtime.
 
 `vercel.json` runs `npm run build` and publishes `public/`; files under `api/` are deployed as serverless functions.
@@ -373,6 +383,12 @@ The guard covers known application, ingestion, server, contract, script, deploym
 
 | Date | Change |
 |---|---|
+| 2026-08-20 | Increased the knowledge-graph uploader's per-request timeout from five minutes to ten minutes; the ingestion architecture and data flow are unchanged. |
+| 2026-08-19 | Replaced reference-centric overall verdicts with evidence-defined `novelty_indicated`, `novelty_not_found`, and `inconclusive` assessments across the shared contract, prompts, report UI, fixtures, and preview. |
+| 2026-08-19 | Added `--question`/`-q` to `scripts/query.sh` for unchanged free-form Hashtag questions while preserving its default novelty query. |
+| 2026-08-19 | Detached `scripts/query.sh` from the backend destination by adding its own `scripts/query_config.json`. |
+| 2026-08-19 | Added `start_server.sh` as a one-command launcher for the in-memory Node local server. |
+| 2026-08-19 | Separated application query and ingestion Hashtag destinations: query runtimes now use `backend/hashtag_config.json`, while the uploader retains `kg_builder/uploader_config.json` with uploader-specific environment overrides. |
 | 2026-08-16 | Removed the live `upload_records.db` runtime artifact from Git tracking while retaining it as the local SQLite state file covered by `.gitignore`. |
 | 2026-08-15 | Pointed the knowledge-graph uploader at `data/patents_5530` and the `rsongnov/patents_5530` corpus, and increased its per-request timeout from two minutes to five minutes. |
 | 2026-08-14 | Added durable `AGENTS.md` guidance, a Codex completion hook, and CI enforcement to keep architecture-relevant changes synchronized with this document. |

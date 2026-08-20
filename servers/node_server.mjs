@@ -30,12 +30,12 @@ const JOB_TTL = 3600_000; // 1 hour
 loadDotEnv(path.join(rootDir, '.env'));
 loadDotEnv(path.join(__dirname, '.env'));
 
-const uploaderConfig = JSON.parse(
-    readFileSync(path.join(rootDir, 'kg_builder', 'uploader_config.json'), 'utf8')
+const hashtagConfig = JSON.parse(
+    readFileSync(path.join(rootDir, 'backend', 'hashtag_config.json'), 'utf8')
 );
 const hashtagBaseUrl = (process.env.HASHTAG_BASE_URL || 'https://kg-api.hashtag.ai').replace(/\/$/, '');
-const hashtagNamespace = (process.env.HASHTAG_NAMESPACE || uploaderConfig.namespace).trim();
-const corpusName = (process.env.HASHTAG_CORPUS_NAME || uploaderConfig.corpus_name).trim();
+const hashtagNamespace = (process.env.HASHTAG_NAMESPACE || hashtagConfig.namespace).trim();
+const corpusName = (process.env.HASHTAG_CORPUS_NAME || hashtagConfig.corpus_name).trim();
 if (!hashtagNamespace) throw new Error('Hashtag namespace must not be empty');
 if (!corpusName) throw new Error('Hashtag corpus name must not be empty');
 const baseUrl = `${hashtagBaseUrl}/${encodeURIComponent(hashtagNamespace)}/${encodeURIComponent(corpusName)}`;

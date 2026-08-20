@@ -33,5 +33,12 @@ for (const invalidFeatureId of ['F1', 0, 1.5, true]) {
 }
 assert.throws(() => validateAnalysis(load('analysis-v2.invalid-enum.json')), /unsupported/);
 assert.throws(() => validateAnalysis(load('analysis-v2.invalid-duplicate.json')), /duplicate feature_id/);
+const anticipating = structuredClone(valid);
+anticipating.features[1].matches = [structuredClone(anticipating.features[0].matches[0])];
+assert.throws(() => validateAnalysis(anticipating), /novelty_indicated conflicts/);
+anticipating.overall_assessment.status = 'novelty_not_found';
+assert.deepEqual(validateAnalysis(anticipating), anticipating);
+anticipating.features[1].matches[0].status = 'partially_disclosed';
+assert.throws(() => validateAnalysis(anticipating), /novelty_not_found requires/);
 assert.throws(() => parseAnalysisResponse({ answer: 'legacy narrative' }), /not valid Schema v2 JSON/);
 console.log('JavaScript contract fixtures passed');

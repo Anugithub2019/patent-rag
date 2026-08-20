@@ -10,6 +10,9 @@ from kg_builder import db, uploader
 
 
 class UploaderConfigurationTests(unittest.TestCase):
+    def test_uploader_destination_comes_from_uploader_config(self):
+        self.assertEqual(uploader.CORPUS_DESTINATION, "rsongnov/patents_5530")
+
     @patch("kg_builder.uploader.requests.post")
     def test_upload_uses_configured_destination(self, mock_post):
         mock_post.return_value.status_code = 200
@@ -20,7 +23,7 @@ class UploaderConfigurationTests(unittest.TestCase):
             mock_post.call_args.args[0],
             "https://kg-api.hashtag.ai/rsongnov/patents_5530/process",
         )
-        self.assertEqual(mock_post.call_args.kwargs["timeout"], 300)
+        self.assertEqual(mock_post.call_args.kwargs["timeout"], 600)
 
     def test_configured_input_directory_resolves_from_project_root(self):
         self.assertEqual(
