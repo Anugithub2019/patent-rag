@@ -19,7 +19,7 @@ patent-rag/
 │   └── hooks.json                  # Stop hook enforcing architecture synchronization
 ├── .github/
 │   └── workflows/
-│       └── contract.yml           # CI: architecture guard, tests, and frontend build
+│       └── contract.yml           # CI plus main-branch Cloud Run deployment
 ├── api/                            # Vercel serverless functions and JavaScript contract code
 │   ├── contract.js                # Schema v2 prompt, normalization, parsing, and validation
 │   ├── health.js                  # GET health endpoint
@@ -40,6 +40,12 @@ patent-rag/
 │   ├── report.html                # Async polling and one-time synchronous-result rendering
 │   ├── search.html                # Text/file input and runtime-aware submission
 │   └── styles.css                 # Shared search/report styles
+├── infra/                         # Terraform for Cloud Run delivery infrastructure
+│   ├── main.tf                    # APIs, registry, identities, IAM, WIF, and secret
+│   ├── outputs.tf                 # GitHub Actions variable values
+│   ├── terraform.tfvars.example  # Non-secret input example
+│   ├── variables.tf               # Project, region, repository, and resource inputs
+│   └── versions.tf                # Provider constraints and remote GCS backend
 ├── kg_builder/                    # Hashtag ingestion and local upload coordination
 │   ├── __init__.py
 │   ├── db.py                      # Versioned SQLite claims and attempt history
@@ -69,8 +75,11 @@ patent-rag/
 │   ├── test_search_js.js          # Vercel search validation/error-path tests
 │   └── test_uploader.py           # Uploader destination and claim-workflow tests
 ├── .gitignore
+├── .dockerignore                  # Excludes secrets, data, and dev files from images
 ├── AGENTS.md                       # Durable repository instructions for coding agents
 ├── ARCHITECTURE.md
+├── DEPLOYMENT.md                   # Cloud Run and GitHub Actions setup guide
+├── Dockerfile                      # Production Node Cloud Run image
 ├── package.json                   # Build, test, local-server, worker, and Redis scripts
 ├── README.md
 ├── requirements.txt              # Python runtime/test dependencies
@@ -367,7 +376,9 @@ For the dependency-light local runtime, run `./start_server.sh`. The launcher re
 
 `vercel.json` runs `npm run build` and publishes `public/`; files under `api/` are deployed as serverless functions.
 
-`.github/workflows/contract.yml` runs for pull requests and pushes to `main` on Python 3.12 and Node 24. It checks architecture synchronization, installs `requirements.txt`, supplies a CI test API key, runs `npm test`, and verifies `npm run build`.
+`.github/workflows/contract.yml` runs for pull requests and pushes to `main` on Python 3.12 and Node 24. It checks architecture synchronization, installs `requirements.txt`, supplies a CI test API key, runs `npm test`, verifies `npm run build`, and checks Terraform formatting and validation. After those checks pass on `main`, its deploy job authenticates to Google Cloud through GitHub OIDC and Workload Identity Federation, builds the production `Dockerfile`, pushes the commit-addressed image to Artifact Registry, and deploys the public Cloud Run service. Cloud Run receives `HASHTAG_API_KEY` from Secret Manager and runs under a dedicated runtime service account. `infra/` declaratively provisions the delivery infrastructure and an empty secret container; secret versions are created out of band so sensitive values never enter Terraform state.
+
+The Cloud Run image contains only the Node server and its runtime frontend, contract, and destination-config files. It does not contain `.env`, patent source data, uploader state, Python workers, or development/test files. The service is limited to one instance because the Node async query route stores jobs in process memory, and CPU throttling is disabled so background Hashtag requests can finish after the HTTP submission response; this is suitable for the current tester deployment but uses instance-based billing and is not horizontally scalable. A multi-instance deployment must use shared job storage or direct the frontend exclusively through the synchronous search route.
 
 ### Architecture synchronization guard
 
@@ -383,6 +394,8 @@ The guard covers known application, ingestion, server, contract, script, deploym
 
 | Date | Change |
 |---|---|
+| 2026-08-23 | Added Terraform-managed Cloud Run delivery infrastructure: required APIs, Artifact Registry, deploy/runtime identities and IAM, GitHub OIDC federation, remote-state configuration, and the Secret Manager container; secret values remain outside Terraform state. |
+| 2026-08-23 | Added containerized Google Cloud Run deployment and main-branch GitHub Actions CD using Artifact Registry, Workload Identity Federation, a dedicated runtime identity, and Secret Manager; constrained the in-memory Node runtime to one instance for polling consistency. |
 | 2026-08-20 | Increased the knowledge-graph uploader's per-request timeout from five minutes to ten minutes; the ingestion architecture and data flow are unchanged. |
 | 2026-08-19 | Replaced reference-centric overall verdicts with evidence-defined `novelty_indicated`, `novelty_not_found`, and `inconclusive` assessments across the shared contract, prompts, report UI, fixtures, and preview. |
 | 2026-08-19 | Added `--question`/`-q` to `scripts/query.sh` for unchanged free-form Hashtag questions while preserving its default novelty query. |

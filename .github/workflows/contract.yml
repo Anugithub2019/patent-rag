@@ -1,5 +1,8 @@
 name: Contract and architecture
 
+permissions:
+  contents: read
+
 on:
   pull_request:
   push:
@@ -38,8 +41,75 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+      - uses: hashicorp/setup-terraform@v3
       - run: pip install -r requirements.txt
       - run: npm test
         env:
           HASHTAG_API_KEY: ci-test-key
       - run: npm run build
+      - name: Check Terraform formatting
+        run: terraform -chdir=infra fmt -check
+      - name: Validate Terraform
+        run: |
+          terraform -chdir=infra init -backend=false
+          terraform -chdir=infra validate
+
+  deploy:
+    name: Deploy to Cloud Run
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: contract
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Install Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Configure Docker authentication
+        run: gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+        env:
+          GCP_REGION: ${{ vars.GCP_REGION }}
+
+      - name: Build and push image
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          GCP_ARTIFACT_REPOSITORY: ${{ vars.GCP_ARTIFACT_REPOSITORY }}
+          GCP_CLOUD_RUN_SERVICE: ${{ vars.GCP_CLOUD_RUN_SERVICE }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GCP_ARTIFACT_REPOSITORY}/${GCP_CLOUD_RUN_SERVICE}:${IMAGE_TAG}"
+          docker build --tag "$IMAGE" .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Deploy Cloud Run revision
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: ${{ vars.GCP_CLOUD_RUN_SERVICE }}
+          region: ${{ vars.GCP_REGION }}
+          image: ${{ env.IMAGE }}
+          env_vars: |-
+            HASHTAG_BASE_URL=https://kg-api.hashtag.ai
+          flags: >-
+            --allow-unauthenticated
+            --max-instances=1
+            --memory=512Mi
+            --cpu=1
+            --no-cpu-throttling
+            --timeout=180s
+            --service-account=${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}
+            --update-secrets=HASHTAG_API_KEY=${{ vars.GCP_HASHTAG_SECRET_ID }}:latest
+
+      - name: Show service URL
+        run: echo "Deployed to ${{ steps.deploy.outputs.url }}"

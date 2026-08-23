@@ -1,0 +1,3 @@
+project_id        = "your-google-cloud-project-id"
+region            = "australia-southeast1"
+github_repository = "github-owner/github-repository"

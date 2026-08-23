@@ -1,0 +1,13 @@
+.git
+.github
+.codex
+.env
+.venv
+__pycache__
+*.pyc
+data
+public
+tests
+upload_records.db
+ARCHITECTURE.md
+README.md
