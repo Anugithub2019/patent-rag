@@ -37,9 +37,9 @@ def process_query(self, job_id: str, text: str):
     # cached report produced from a different knowledge base.
     cache_material = f"{BASE_URL}\0{text}"
     query_hash = hashlib.sha256(cache_material.encode("utf-8")).hexdigest()
-    # Version the cache namespace so legacy result payloads can never be
-    # returned as Schema v2 reports.
-    cache_key = f"query_cache:v4:{query_hash}"
+    # Version the cache namespace so reports produced by older prompt or
+    # contract semantics cannot be returned as current Schema v2 reports.
+    cache_key = f"query_cache:v5:{query_hash}"
 
     # Check if we already have a cached result for this exact query
     cached = redis_client.get(cache_key)

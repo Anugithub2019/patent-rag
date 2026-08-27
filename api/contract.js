@@ -2,13 +2,15 @@
 
 const ASSESSMENTS = new Set(['novelty_indicated', 'novelty_not_found', 'inconclusive']);
 const DISCLOSURES = new Set(['disclosed', 'partially_disclosed']);
+const ASSESSMENT_IDENTIFIER_PATTERN = /\bnovelty_(?:indicated|not_found)\b/i;
+const LEADING_ASSESSMENT_RESTATEMENT_PATTERN = /^(?:(?:(?:the|this)\s+)?(?:assessment|result|conclusion|status)\s+(?:is|was)\s+(?:that\s+)?)?(?:novelty\s+(?:(?:is|was)\s+)?indicated|novelty\s+(?:(?:is|was)\s+)?not\s+found|inconclusive)\b/i;
 
 class ContractError extends Error {}
 
 function buildStructuredQuery(userText) {
     const text = String(userText).trim();
     return `Analyze the following technology disclosure against the retrieved patent context.
-Return ONLY valid JSON (no Markdown) using schema_version 2 with: overall_assessment {status, summary}; and a non-empty features array whose items contain feature_id, feature_text, and matches. feature_id must be a unique positive JSON integer numbered 1, 2, 3, and so on (never a quoted string such as "F1"). Each match must contain non-empty reference_id, patent_id, title, status (disclosed or partially_disclosed), disclosure_summary, and an evidence array of {passage, optional location}; source_url is optional and must be http(s). Never output null. Omit optional location and source_url fields when unavailable. If any required match metadata is unavailable, omit that entire match and use an empty matches array when no complete match remains. Assessment status must be novelty_indicated, novelty_not_found, or inconclusive. Include every material feature and do not invent evidence or reference metadata. Use novelty_not_found only when one single reference has an evidence-supported disclosed (not partially_disclosed) match for every material feature. Use novelty_indicated only when the retrieved context is sufficient to assess every material feature and no single reference fully discloses all of them. Use inconclusive whenever the context or evidence is insufficient to apply either rule confidently. The summary must explain which rule was met, identify any single anticipation reference for novelty_not_found, and state that the result is limited to retrieved references rather than a legal conclusion.
+Return ONLY valid JSON (no Markdown) using schema_version 2 with: overall_assessment {status, summary}; and a non-empty features array whose items contain feature_id, feature_text, and matches. feature_id must be a unique positive JSON integer numbered 1, 2, 3, and so on (never a quoted string such as "F1"). Each match must contain non-empty reference_id, patent_id, title, status (disclosed or partially_disclosed), disclosure_summary, and an evidence array of {passage, optional location}; source_url is optional and must be http(s). reference_id must be a non-empty JSON string, never a number. Use the patent publication ID as reference_id when available and reuse exactly the same reference_id every time the same patent appears across features. Never output null. Omit optional location and source_url fields when unavailable. If any required match metadata is unavailable, omit that entire match and use an empty matches array when no complete match remains. Assessment status must be novelty_indicated, novelty_not_found, or inconclusive. Include every material feature and do not invent evidence or reference metadata. Use novelty_not_found only when one single reference has an evidence-supported disclosed (not partially_disclosed) match for every material feature. Use novelty_indicated only when the retrieved context is sufficient to assess every material feature and no single reference fully discloses all of them. Use inconclusive whenever the context or evidence is insufficient to apply either rule confidently. Put the assessment enum only in overall_assessment.status. Write the summary as evidence-first explanatory prose: state the reason without repeating the assessment conclusion, and never include a raw or Markdown-escaped assessment identifier. Start immediately with a retrieved-reference fact, such as "No single retrieved reference discloses every material feature." Do not begin the summary with "The assessment", "The result", "Novelty", or "Inconclusive". When status is novelty_not_found, identify the single anticipation reference as part of the reason. The summary must still state that the result is limited to the retrieved references rather than a legal conclusion.
 
 Technology disclosure:
 ${text}`;
@@ -20,6 +22,10 @@ function record(value) {
 
 function unavailable(value) {
     return value === null || value === undefined || (typeof value === 'string' && !value.trim());
+}
+
+function nonEmptyString(value) {
+    return typeof value === 'string' && Boolean(value.trim());
 }
 
 function normalizeAnalysisCandidate(candidate) {
@@ -44,6 +50,9 @@ function normalizeAnalysisCandidate(candidate) {
         feature.matches = feature.matches
             .filter((match) => {
                 if (!record(match)) return true;
+                if (!nonEmptyString(match.reference_id) && nonEmptyString(match.patent_id)) {
+                    match.reference_id = match.patent_id.trim();
+                }
                 return !requiredMatchFields.some(
                     (key) => !Object.prototype.hasOwnProperty.call(match, key) || unavailable(match[key])
                 );
@@ -71,6 +80,16 @@ function text(value, path) {
     if (typeof value !== 'string' || !value.trim()) throw new ContractError(`${path} must be non-empty text`);
 }
 
+function assessmentSummary(value, path) {
+    text(value, path);
+    const inspection = value.replace(/\\_/g, '_').trim();
+    const repeatsIdentifier = ASSESSMENT_IDENTIFIER_PATTERN.test(inspection);
+    const restatesConclusion = LEADING_ASSESSMENT_RESTATEMENT_PATTERN.test(inspection);
+    if (repeatsIdentifier || restatesConclusion) {
+        throw new ContractError(`${path} must explain the evidence without repeating the assessment status`);
+    }
+}
+
 function positiveInteger(value, path) {
     if (!Number.isInteger(value) || value < 1) throw new ContractError(`${path} must be a positive integer`);
 }
@@ -88,7 +107,7 @@ function validateAnalysis(data) {
     if (!record(assessment)) throw new ContractError('overall_assessment must be an object');
     exactKeys(assessment, ['status', 'summary'], 'overall_assessment');
     if (!ASSESSMENTS.has(assessment.status)) throw new ContractError('overall_assessment.status is unsupported');
-    text(assessment.summary, 'overall_assessment.summary');
+    assessmentSummary(assessment.summary, 'overall_assessment.summary');
     if (!Array.isArray(data.features) || !data.features.length) throw new ContractError('features must be a non-empty array');
 
     const featureIds = new Set();

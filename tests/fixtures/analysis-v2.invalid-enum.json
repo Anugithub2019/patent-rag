@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "overall_assessment": { "status": "novel", "summary": "Invalid enum fixture." },
+  "overall_assessment": { "status": "novel", "summary": "The retrieved evidence does not support a recognized result." },
   "features": [
     { "feature_id": 1, "feature_text": "A feature.", "matches": [] }
   ]

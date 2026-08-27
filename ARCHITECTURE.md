@@ -1,6 +1,6 @@
 # Patent RAG System — Architecture
 
-> **Living document** — Last reviewed against the repository on 2026-08-14. Record every architecture-relevant source or configuration change here, including a dated Change Log entry; note explicitly when an internal change leaves the architecture unchanged.
+> **Living document** — Last reviewed against the repository on 2026-08-27. Record every architecture-relevant source or configuration change here, including a dated Change Log entry; note explicitly when an internal change leaves the architecture unchanged.
 
 ## Overview
 
@@ -66,6 +66,7 @@ patent-rag/
 │   ├── test_contract_js.js        # JavaScript contract tests using shared fixtures
 │   ├── test_db.py                 # SQLite migration, lease, recovery, and reporting tests
 │   ├── test_frontend_fallback_js.js # Vercel fallback/sessionStorage handoff tests
+│   ├── test_node_server_debug.py  # Node debug-only successful raw-response route tests
 │   ├── test_search_js.js          # Vercel search validation/error-path tests
 │   └── test_uploader.py           # Uploader destination and claim-workflow tests
 ├── .gitignore
@@ -102,7 +103,7 @@ A valid `analysisV2` object has exactly these top-level fields:
   "schema_version": 2,
   "overall_assessment": {
     "status": "novelty_indicated",
-    "summary": "Non-empty assessment text"
+    "summary": "No single retrieved reference discloses every material feature. This assessment is limited to the retrieved references and is not a legal conclusion."
   },
   "features": [
     {
@@ -126,19 +127,20 @@ A valid `analysisV2` object has exactly these top-level fields:
 }
 ```
 
-The allowed overall statuses are `novelty_indicated`, `novelty_not_found`, and `inconclusive`. `novelty_not_found` requires one retrieved reference to have an evidence-supported `disclosed` match for every material feature. `novelty_indicated` means the retrieved context is sufficient for every material feature but no one retrieved reference fully discloses them all. `inconclusive` is required when the retrieved context or evidence is insufficient. These are retrieval-limited research assessments, not legal conclusions. Match status is either `disclosed` or `partially_disclosed`. `location` and `source_url` are optional; all other displayed match fields are required and non-empty.
+The allowed overall statuses are `novelty_indicated`, `novelty_not_found`, and `inconclusive`. The machine-readable `status` is the sole novelty-search result; the report maps it to a complete human sentence. The `summary` contains only the evidence-based reason and the retrieval-limited, non-legal qualification, without repeating or embedding the result. `novelty_not_found` requires one retrieved reference to have an evidence-supported `disclosed` match for every material feature. `novelty_indicated` means the retrieved context is sufficient for every material feature but no one retrieved reference fully discloses them all. `inconclusive` is required when the retrieved context or evidence is insufficient. These are retrieval-limited research assessments, not legal conclusions. Match status is either `disclosed` or `partially_disclosed`. `location` and `source_url` are optional; all other displayed match fields are required and non-empty.
 
 ### Prompt, normalization, and validation
 
-Both `backend/query_builder.py` and `api/contract.js` always wrap the disclosure in a strict Schema v2 instruction. The prompt requires JSON only, positive integer feature IDs, every material feature, complete reference metadata, citable evidence, no invented values, explicit evidence-based novelty verdict rules, and `inconclusive` when the retrieved context is insufficient. Verdict summaries must disclose the retrieval-limited, non-legal scope.
+Both `backend/query_builder.py` and `api/contract.js` always wrap the disclosure in a strict Schema v2 instruction. The prompt requires JSON only, positive integer feature IDs, stable non-numeric string reference IDs reused across features, every material feature, complete reference metadata, citable evidence, no invented values, explicit evidence-based novelty verdict rules, and `inconclusive` when the retrieved context is insufficient. It places the enum only in `overall_assessment.status`; `overall_assessment.summary` must start directly with the evidence-based reason, must not repeat the result in machine or human wording, and must disclose the retrieval-limited, non-legal scope.
 
 The parsers accept either a top-level Schema v2 object or a Hashtag response whose `answer` contains the object. A string answer may be plain JSON or wrapped in a JSON Markdown fence. Before strict validation, the normalizer performs only narrow LLM-output cleanup:
 
+- replace a missing, blank, or non-text `reference_id` with the match's existing non-empty `patent_id`, preserving a stable supplied identity instead of inventing one;
 - omit a whole match when a required match field is missing, null, or blank;
 - omit blank optional `source_url` and evidence `location` fields;
 - drop evidence entries whose required passage is missing or blank.
 
-Validation then rejects unsupported or extra fields, empty required text or evidence arrays, invalid enums or URLs, non-positive/non-integer feature IDs, duplicate feature IDs, duplicate reference IDs within one feature, conflicting patent metadata for a reused reference ID, and novelty verdicts that conflict with the cross-feature evidence. It does not silently coerce a legacy narrative response into Schema v2.
+Validation then rejects unsupported or extra fields, empty required text or evidence arrays, invalid enums or URLs, result identifiers or leading result restatements inside the assessment reason, non-positive/non-integer feature IDs, duplicate feature IDs, duplicate reference IDs within one feature, conflicting patent metadata for a reused reference ID, and novelty verdicts that conflict with the cross-feature evidence. It does not silently coerce a legacy narrative response into Schema v2 or guess how to rewrite malformed assessment prose.
 
 `backend/contract.py` enforces the Python HTTP/job boundaries and analysis semantics. `api/contract.js` provides the equivalent JavaScript prompt/parser/validator for the Node and Vercel runtimes. The report page validates the essential Schema v2 structure again before rendering.
 
@@ -198,7 +200,7 @@ All Flask `/api/` responses receive `Cache-Control: no-store`.
 
 ### `servers/node_server.mjs` — In-Memory Local Runtime
 
-The Node server exposes the same frontend, health, synchronous search, async submission, and result-polling route set as Flask. It has no Redis or Celery dependency: jobs live in an in-memory `Map`, the Hashtag request starts as a background promise, and each job expires after one hour. Restarting the process loses outstanding jobs and their results.
+The Node server exposes the same frontend, health, synchronous search, async submission, and result-polling route set as Flask. It has no Redis or Celery dependency: jobs live in an in-memory `Map`, the Hashtag request starts as a background promise, and each job expires after one hour. Restarting the process loses outstanding jobs and their results. When `DEBUG_INVALID_REPORTS=true`, successful jobs also retain the original Hashtag payload and expose it at `GET /api/result/<job_id>/raw`; the route returns 404 outside debug mode.
 
 Both `/api/query` and `/api/search` use `api/contract.js` to build and validate Schema v2. API JSON responses use `Cache-Control: no-store`.
 
@@ -216,7 +218,9 @@ Both `/api/query` and `/api/search` use `api/contract.js` to build and validate 
 - with `job_id`, it polls `/api/result/<job_id>` every two seconds until complete, failed, missing, or timed out;
 - with `result_source=session-v2`, it reads and immediately removes the one-time session value, parses it, and sends it through the existing Schema v2 report validator/renderer.
 
-Missing, corrupt, or unavailable session storage renders the report error state. A synchronous API or storage failure on the search page does not redirect. Legacy/unversioned results are shown as unsupported instead of being interpreted as trustworthy feature comparisons.
+For Node async jobs, the completed report also probes the debug-only raw-result route. If available, a **Show raw backend response** button reveals the complete pre-validation Hashtag JSON; no button appears in normal mode. Missing, corrupt, or unavailable session storage renders the report error state. A synchronous API or storage failure on the search page does not redirect. Legacy/unversioned results are shown as unsupported instead of being interpreted as trustworthy feature comparisons.
+
+The assessment card renders two vertically stacked rows. The labelled **Result** row shows only a deterministic bold verdict derived locally from `overall_assessment.status`: **Novelty indicated**, **Novelty not found**, or **Inconclusive**. The following unlabeled row shows the validated, reason-only `overall_assessment.summary` returned by Hashtag as plain text. The report never interprets assessment prose as HTML or Markdown.
 
 ### `kg_builder/` — Knowledge-Graph Ingestion
 
@@ -270,7 +274,7 @@ search.html
              │
              ▼
 Celery worker (backend.tasks explicitly registered)
-  ├─ derive destination-aware query_cache:v4 key
+  ├─ derive destination-aware query_cache:v5 key
   ├─ validate and reuse a cache hit, or
   ├─ build strict Schema v2 prompt → POST Hashtag /query
   ├─ normalize and validate Schema v2
@@ -361,7 +365,7 @@ Hashtag destination path components are URL-encoded by the primary Python and Ja
 | `celery:worker` | `celery -A backend.celery_app worker --loglevel=info` | Start a worker with `backend.tasks` explicitly included by the Celery app. |
 | `redis:start` | `brew services start redis` | Start Redis through Homebrew. |
 
-For the dependency-light local runtime, run `./start_server.sh`. The launcher resolves the repository root regardless of the caller's current directory and executes `npm run start:node`; the server then listens on `PORT` or port 3000 by default.
+For the dependency-light local runtime, run `./start_server.sh`. The launcher resolves the repository root regardless of the caller's current directory and executes `npm run start:node`; the server then listens on `PORT` or port 3000 by default. Pass `--debug` (or `-d`) to set `DEBUG_INVALID_REPORTS=true` for that process, expose raw Hashtag responses when validation fails, and enable the successful-report raw-response viewer.
 
 `requirements.txt` declares Redis, Celery, Requests, python-dotenv, Flask, and openpyxl. There is no npm dependency manifest beyond the scripts in `package.json`; the frontend loads Vue 3 from unpkg at browser runtime.
 
@@ -383,6 +387,12 @@ The guard covers known application, ingestion, server, contract, script, deploym
 
 | Date | Change |
 |---|---|
+| 2026-08-27 | Changed the assessment card from two columns to stacked result-and-explanation rows, removed the visible Reason heading and technical-disclosure qualifier, and renders only the mapped verdict in bold. |
+| 2026-08-26 | Separated the human-facing novelty result from its evidence-based reason while preserving Schema v2: prompts and validators keep result wording out of `summary`, the report derives result prose from `status`, and the Redis query-cache namespace advanced to v5. |
+| 2026-08-25 | Removed the transient success notification after loading a non-empty text file; file selection, validation, and application architecture are unchanged. |
+| 2026-08-21 | Repaired non-text Hashtag `reference_id` values from their supplied patent IDs in both parsers and strengthened both prompts to require stable string reference IDs. |
+| 2026-08-20 | Added a debug-only Node raw-result endpoint and completed-report button for inspecting successful Hashtag responses without changing normal job-result payloads. |
+| 2026-08-20 | Added `--debug`/`-d` to `start_server.sh` so the local Node runtime can opt into invalid-report raw-response diagnostics at launch. |
 | 2026-08-20 | Increased the knowledge-graph uploader's per-request timeout from five minutes to ten minutes; the ingestion architecture and data flow are unchanged. |
 | 2026-08-19 | Replaced reference-centric overall verdicts with evidence-defined `novelty_indicated`, `novelty_not_found`, and `inconclusive` assessments across the shared contract, prompts, report UI, fixtures, and preview. |
 | 2026-08-19 | Added `--question`/`-q` to `scripts/query.sh` for unchanged free-form Hashtag questions while preserving its default novelty query. |

@@ -83,12 +83,24 @@
                                 <p class="eyebrow">Novelty search</p>
                                 <h1 id="reportTitle">Search report</h1>
                             </div>
-                            <button v-if="showNewSearch" class="button button-report-action" type="button" @click="goToSearch">
-                                <svg class="button-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                                    <path d="M16 10H4M9 5l-5 5 5 5" stroke="currentColor" stroke-width="1.5"></path>
-                                </svg>
-                                New search
-                            </button>
+                            <div v-if="showNewSearch" class="report-heading-actions">
+                                <button
+                                    v-if="rawResponseDetails"
+                                    class="button button-report-debug"
+                                    type="button"
+                                    aria-controls="rawBackendResponse"
+                                    :aria-expanded="rawResponseExpanded"
+                                    @click="rawResponseExpanded = !rawResponseExpanded"
+                                >
+                                    {{ rawResponseExpanded ? 'Hide raw backend response' : 'Show raw backend response' }}
+                                </button>
+                                <button class="button button-report-action" type="button" @click="goToSearch">
+                                    <svg class="button-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                                        <path d="M16 10H4M9 5l-5 5 5 5" stroke="currentColor" stroke-width="1.5"></path>
+                                    </svg>
+                                    New search
+                                </button>
+                            </div>
                         </div>
                         <p class="report-introduction">
                             A feature-by-feature review of the submitted technology and relevant prior-art disclosures.
@@ -140,13 +152,31 @@
                                     <div>
                                         <h2 id="executiveAssessmentTitle">Assessment summary</h2>
                                     </div>
-                                    <span class="status-label" :class="assessmentStatusClass">
-                                        <span class="status-dot" aria-hidden="true"></span>
-                                        {{ analysisStatusLabel }}
-                                    </span>
                                 </div>
 
-                                <p class="assessment-text">{{ assessmentText }}</p>
+                                <div class="assessment-breakdown">
+                                    <section class="assessment-part assessment-result" aria-labelledby="assessmentResultTitle">
+                                        <h3 id="assessmentResultTitle">Result</h3>
+                                        <p class="assessment-result-text">
+                                            <strong>{{ assessmentResult }}</strong>
+                                        </p>
+                                    </section>
+                                    <section class="assessment-part assessment-reason" aria-label="Assessment reason">
+                                        <p class="assessment-reason-text">{{ assessmentReason }}</p>
+                                    </section>
+                                </div>
+                            </section>
+
+                            <section
+                                v-if="rawResponseDetails"
+                                id="rawBackendResponse"
+                                class="raw-response-panel"
+                                aria-labelledby="rawBackendResponseTitle"
+                                :hidden="!rawResponseExpanded"
+                            >
+                                <h2 id="rawBackendResponseTitle">Raw backend response</h2>
+                                <p>Complete JSON returned by Hashtag before report validation.</p>
+                                <pre>{{ rawResponseDetails }}</pre>
                             </section>
 
                             <section class="features-section" aria-labelledby="featuresTitle">
@@ -240,6 +270,8 @@
                 });
                 const errorMessage = ref('An unexpected error prevented the analysis from completing.');
                 const debugDetails = ref('');
+                const rawResponseDetails = ref('');
+                const rawResponseExpanded = ref(false);
                 const unsupportedMessage = ref('The completed search did not include the structured feature data required by this report.');
                 const activeStep = ref(0);
                 const progressTimer = ref(null);
@@ -248,17 +280,14 @@
                 const mobileProgressQuery = window.matchMedia('(max-width: 960px)');
                 const progressExpanded = ref(!mobileProgressQuery.matches);
 
-                const ASSESSMENT_LABELS = Object.freeze({
+                const ASSESSMENT_RESULTS = Object.freeze({
                     novelty_indicated: 'Novelty indicated',
                     novelty_not_found: 'Novelty not found',
                     inconclusive: 'Inconclusive'
                 });
 
-                const ASSESSMENT_CLASSES = Object.freeze({
-                    novelty_indicated: 'status-label-positive',
-                    novelty_not_found: 'status-label-caution',
-                    inconclusive: 'status-label-neutral'
-                });
+                const ASSESSMENT_IDENTIFIER_PATTERN = /\bnovelty_(?:indicated|not_found)\b/i;
+                const LEADING_ASSESSMENT_RESTATEMENT_PATTERN = /^(?:(?:(?:the|this)\s+)?(?:assessment|result|conclusion|status)\s+(?:is|was)\s+(?:that\s+)?)?(?:novelty\s+(?:(?:is|was)\s+)?indicated|novelty\s+(?:(?:is|was)\s+)?not\s+found|inconclusive)\b/i;
 
                 const DISCLOSURE_STATUSES = new Set([
                     'disclosed',
@@ -286,15 +315,11 @@
 
                 const showNewSearch = computed(() => reportState.value !== 'loading');
 
-                const analysisStatusLabel = computed(() => {
-                    return ASSESSMENT_LABELS[overallAssessment.value.status] || ASSESSMENT_LABELS.inconclusive;
+                const assessmentResult = computed(() => {
+                    return ASSESSMENT_RESULTS[overallAssessment.value.status] || ASSESSMENT_RESULTS.inconclusive;
                 });
 
-                const assessmentStatusClass = computed(() => {
-                    return ASSESSMENT_CLASSES[overallAssessment.value.status] || ASSESSMENT_CLASSES.inconclusive;
-                });
-
-                const assessmentText = computed(() => {
+                const assessmentReason = computed(() => {
                     return overallAssessment.value.summary;
                 });
 
@@ -344,6 +369,8 @@
                     };
                     errorMessage.value = '';
                     debugDetails.value = '';
+                    rawResponseDetails.value = '';
+                    rawResponseExpanded.value = false;
                     unsupportedMessage.value = 'The completed search did not include the structured feature data required by this report.';
                     startProgress();
                 }
@@ -357,6 +384,18 @@
                         throw new Error(`${fieldName} must be a non-empty string.`);
                     }
                     return value.trim();
+                }
+
+                function requireAssessmentReason(value, fieldName) {
+                    const reason = requireText(value, fieldName);
+                    const inspection = reason.replace(/\\_/g, '_');
+                    if (
+                        ASSESSMENT_IDENTIFIER_PATTERN.test(inspection)
+                        || LEADING_ASSESSMENT_RESTATEMENT_PATTERN.test(inspection)
+                    ) {
+                        throw new Error(`${fieldName} must explain the evidence without repeating the assessment status.`);
+                    }
+                    return reason;
                 }
 
                 function requirePositiveInteger(value, fieldName) {
@@ -422,13 +461,13 @@
                         data.overall_assessment.status,
                         'overall_assessment.status'
                     );
-                    if (!Object.prototype.hasOwnProperty.call(ASSESSMENT_LABELS, assessmentStatus)) {
+                    if (!Object.prototype.hasOwnProperty.call(ASSESSMENT_RESULTS, assessmentStatus)) {
                         throw new Error('overall_assessment.status is not supported.');
                     }
 
                     const assessment = {
                         status: assessmentStatus,
-                        summary: requireText(
+                        summary: requireAssessmentReason(
                             data.overall_assessment.summary,
                             'overall_assessment.summary'
                         )
@@ -582,6 +621,29 @@
                             : JSON.stringify(upstreamResponse, null, 2));
                 }
 
+                async function loadRawResponse(jobId) {
+                    try {
+                        const response = await fetch(`/api/result/${encodeURIComponent(jobId)}/raw`);
+                        if (response.status === 404) return;
+                        if (!response.ok) {
+                            console.warn(`Raw response service returned status ${response.status}.`);
+                            return;
+                        }
+
+                        const data = await response.json();
+                        if (!isRecord(data) || !Object.prototype.hasOwnProperty.call(data, 'upstream_response')) {
+                            console.warn('Raw response service returned an invalid payload.');
+                            return;
+                        }
+
+                        rawResponseDetails.value = typeof data.upstream_response === 'string'
+                            ? data.upstream_response
+                            : JSON.stringify(data.upstream_response, null, 2);
+                    } catch (error) {
+                        console.warn('Could not load the raw backend response:', error);
+                    }
+                }
+
                 function consumeSessionReport() {
                     let serializedReport;
                     try {
@@ -608,7 +670,7 @@
                         schema_version: 2,
                         overall_assessment: {
                             status: 'novelty_indicated',
-                            summary: 'Novelty is indicated because no single reviewed reference was identified as fully disclosing every material feature of the battery disconnect assembly. This assessment is limited to the retrieved references and is not a legal conclusion.'
+                            summary: 'No single reviewed reference fully discloses every material feature of the battery disconnect assembly. This assessment is limited to the retrieved references and is not a legal conclusion.'
                         },
                         features: [
                             {
@@ -718,6 +780,7 @@
                                 clearInterval(pollTimer.value);
                                 pollTimer.value = null;
                                 onComplete(data.data);
+                                await loadRawResponse(jobId);
                                 return;
                             }
 
@@ -823,14 +886,15 @@
                     overallAssessment,
                     errorMessage,
                     debugDetails,
+                    rawResponseDetails,
+                    rawResponseExpanded,
                     unsupportedMessage,
                     activeStep,
                     progressSteps,
                     progressExpanded,
                     showNewSearch,
-                    analysisStatusLabel,
-                    assessmentStatusClass,
-                    assessmentText,
+                    assessmentResult,
+                    assessmentReason,
                     stepClass,
                     progressStepStatus,
                     disclosureStatusLabel,
