@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "overall_assessment": { "status": "inconclusive", "summary": "Duplicate fixture." },
+  "overall_assessment": { "status": "inconclusive", "summary": "The retrieved context does not address every material feature sufficiently." },
   "features": [
     { "feature_id": 1, "feature_text": "First feature.", "matches": [] },
     { "feature_id": 1, "feature_text": "Duplicate feature.", "matches": [] }

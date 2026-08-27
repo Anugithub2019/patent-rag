@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from backend.contract import ContractError, make_job_result, parse_analysis_response, validate_analysis, validate_contract
+from backend.query_builder import build_query
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -41,7 +42,7 @@ class ContractTests(unittest.TestCase):
         complete_match["source_url"] = None
         complete_match["evidence"][0]["location"] = None
         incomplete_match = json.loads(json.dumps(complete_match))
-        incomplete_match["reference_id"] = None
+        incomplete_match["title"] = None
         upstream["features"][1]["matches"] = [incomplete_match]
         snapshot = json.loads(json.dumps(upstream))
 
@@ -51,6 +52,180 @@ class ContractTests(unittest.TestCase):
         self.assertNotIn("location", normalized["features"][0]["matches"][0]["evidence"][0])
         self.assertEqual(normalized["features"][1]["matches"], [])
         self.assertEqual(upstream, snapshot)
+
+    def test_invalid_reference_ids_use_supplied_patent_id(self):
+        for invalid_reference_id in (1, None, "", {}, [], True):
+            with self.subTest(reference_id=invalid_reference_id):
+                upstream = fixture("analysis-v2.valid.json")
+                match = upstream["features"][0]["matches"][0]
+                match["reference_id"] = invalid_reference_id
+                snapshot = json.loads(json.dumps(upstream))
+
+                normalized = parse_analysis_response(upstream)
+
+                self.assertEqual(normalized["features"][0]["matches"][0]["reference_id"], match["patent_id"])
+                self.assertEqual(upstream, snapshot)
+
+        upstream = fixture("analysis-v2.valid.json")
+        del upstream["features"][0]["matches"][0]["reference_id"]
+        normalized = parse_analysis_response(upstream)
+        self.assertEqual(
+            normalized["features"][0]["matches"][0]["reference_id"],
+            normalized["features"][0]["matches"][0]["patent_id"],
+        )
+
+    def test_numeric_reference_ids_share_one_cross_feature_identity(self):
+        upstream = fixture("analysis-v2.valid.json")
+        first_match = upstream["features"][0]["matches"][0]
+        first_match["reference_id"] = 1
+        second_match = json.loads(json.dumps(first_match))
+        second_match["reference_id"] = 2
+        upstream["features"][1]["matches"] = [second_match]
+        upstream["overall_assessment"]["status"] = "novelty_not_found"
+
+        normalized = parse_analysis_response(upstream)
+
+        expected_reference_id = first_match["patent_id"]
+        self.assertEqual(
+            [feature["matches"][0]["reference_id"] for feature in normalized["features"]],
+            [expected_reference_id, expected_reference_id],
+        )
+
+    def test_direct_validation_still_rejects_numeric_reference_ids(self):
+        analysis = fixture("analysis-v2.valid.json")
+        analysis["features"][0]["matches"][0]["reference_id"] = 1
+        with self.assertRaisesRegex(ContractError, "reference_id must be non-empty text"):
+            validate_analysis(analysis)
+
+        upstream = fixture("analysis-v2.valid.json")
+        upstream["features"][0]["matches"][0].update(reference_id=1, patent_id=2)
+        with self.assertRaises(ContractError):
+            parse_analysis_response(upstream)
+
+    def test_reference_id_repair_does_not_hide_duplicates(self):
+        upstream = fixture("analysis-v2.valid.json")
+        first_match = upstream["features"][0]["matches"][0]
+        first_match["reference_id"] = 1
+        duplicate_match = json.loads(json.dumps(first_match))
+        duplicate_match["reference_id"] = 2
+        upstream["features"][0]["matches"].append(duplicate_match)
+
+        with self.assertRaisesRegex(ContractError, "duplicate reference_id"):
+            parse_analysis_response(upstream)
+
+    def test_prompt_requires_stable_text_reference_ids(self):
+        prompt = build_query("A controller and two contacts")
+        self.assertIn("reference_id must be a non-empty JSON string, never a number", prompt)
+        self.assertIn("reuse exactly the same reference_id", prompt)
+
+    def test_prompt_keeps_assessment_status_out_of_summary(self):
+        prompt = build_query("A controller and two contacts")
+
+        self.assertIn("Put the assessment enum only in overall_assessment.status", prompt)
+        self.assertIn("state the reason without repeating the assessment conclusion", prompt)
+        self.assertIn("never include a raw or Markdown-escaped assessment identifier", prompt)
+        self.assertIn("Start immediately with a retrieved-reference fact", prompt)
+        self.assertIn(
+            'Do not begin the summary with "The assessment", "The result", "Novelty", or "Inconclusive"',
+            prompt,
+        )
+        self.assertIn("identify the single anticipation reference as part of the reason", prompt)
+        self.assertIn(
+            "The summary must still state that the result is limited to the retrieved references "
+            "rather than a legal conclusion",
+            prompt,
+        )
+        self.assertNotIn("The summary must explain which rule was met", prompt)
+
+    def test_assessment_status_requires_an_exact_enum_value(self):
+        for invalid_status in (
+            "Novelty indicated",
+            "novelty indicated",
+            r"novelty\_indicated",
+            "NOVELTY_INDICATED",
+            " novelty_indicated ",
+        ):
+            with self.subTest(status=invalid_status):
+                analysis = fixture("analysis-v2.valid.json")
+                analysis["overall_assessment"]["status"] = invalid_status
+                with self.assertRaisesRegex(ContractError, "overall_assessment.status is unsupported"):
+                    validate_analysis(analysis)
+
+    def test_summary_rejects_raw_and_markdown_escaped_assessment_identifiers(self):
+        summaries = (
+            "The assessment is novelty_indicated because no single reference discloses every feature.",
+            r"The assessment is novelty\_indicated because no single reference discloses every feature.",
+            "The evidence supports novelty_not_found in the retrieved references.",
+            r"The evidence supports novelty\_not\_found in the retrieved references.",
+        )
+
+        for summary in summaries:
+            with self.subTest(summary=summary):
+                analysis = fixture("analysis-v2.valid.json")
+                analysis["overall_assessment"]["summary"] = summary
+                with self.assertRaisesRegex(
+                    ContractError,
+                    "must explain the evidence without repeating the assessment status",
+                ):
+                    validate_analysis(analysis)
+
+        escaped_upstream = fixture("analysis-v2.valid.json")
+        escaped_upstream["overall_assessment"]["summary"] = (
+            r"The assessment is novelty\_indicated because no single reference discloses every feature."
+        )
+        with self.assertRaisesRegex(
+            ContractError,
+            "must explain the evidence without repeating the assessment status",
+        ):
+            parse_analysis_response({"answer": json.dumps(escaped_upstream)})
+
+        observed = fixture("analysis-v2.valid.json")
+        observed["overall_assessment"]["summary"] = (
+            r"The assessment is novelty\_indicated because no single reference discloses every feature."
+        )
+        with self.assertRaisesRegex(
+            ContractError,
+            "must explain the evidence without repeating the assessment status",
+        ):
+            parse_analysis_response({"answer": json.dumps(observed)})
+
+    def test_summary_rejects_leading_human_assessment_restatements(self):
+        cases = (
+            (
+                "novelty_indicated",
+                "Novelty is indicated because no single reference discloses every feature.",
+            ),
+            (
+                "novelty_not_found",
+                "The assessment is that novelty was not found because one reference discloses every feature.",
+            ),
+            (
+                "inconclusive",
+                "This result was inconclusive because the retrieved context was insufficient.",
+            ),
+        )
+
+        for status, summary in cases:
+            with self.subTest(status=status, summary=summary):
+                analysis = fixture("analysis-v2.valid.json")
+                analysis["overall_assessment"].update(status=status, summary=summary)
+                with self.assertRaisesRegex(
+                    ContractError,
+                    "must explain the evidence without repeating the assessment status",
+                ):
+                    validate_analysis(analysis)
+
+    def test_summary_allows_evidence_first_reason_and_scope_disclaimer(self):
+        analysis = fixture("analysis-v2.valid.json")
+        analysis["overall_assessment"].update(
+            status="inconclusive",
+            summary=(
+                "The retrieved context is insufficient to assess every material feature. "
+                "This assessment is limited to the retrieved references and is not a legal conclusion."
+            ),
+        )
+
+        self.assertEqual(validate_analysis(analysis), analysis)
 
     def test_missing_or_narrative_upstream_answer_is_rejected(self):
         for response in ({}, {"answer": "This is a narrative response."}, []):

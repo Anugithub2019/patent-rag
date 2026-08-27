@@ -64,8 +64,14 @@
           "additionalProperties": false,
           "required": ["status", "summary"],
           "properties": {
-            "status": { "enum": ["novelty_indicated", "novelty_not_found", "inconclusive"] },
-            "summary": { "$ref": "#/$defs/nonEmptyText" }
+            "status": {
+              "description": "Machine-readable novelty-search result rendered as human-facing text by the report UI.",
+              "enum": ["novelty_indicated", "novelty_not_found", "inconclusive"]
+            },
+            "summary": {
+              "$ref": "#/$defs/nonEmptyText",
+              "description": "Evidence-based reason only; it must not repeat or contain the machine-readable status result."
+            }
           }
         },
         "features": {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict
@@ -16,6 +17,20 @@ with CONTRACT_PATH.open(encoding="utf-8") as contract_file:
 
 class ContractError(ValueError):
     """Raised when upstream or internal data violates the public contract."""
+
+
+_ASSESSMENT_IDENTIFIER_PATTERN = re.compile(
+    r"\bnovelty_(?:indicated|not_found)\b",
+    re.IGNORECASE,
+)
+_LEADING_ASSESSMENT_RESTATEMENT_PATTERN = re.compile(
+    r"^(?:(?:(?:the|this)\s+)?(?:assessment|result|conclusion|status)\s+"
+    r"(?:is|was)\s+(?:that\s+)?)?"
+    r"(?:novelty\s+(?:(?:is|was)\s+)?indicated|"
+    r"novelty\s+(?:(?:is|was)\s+)?not\s+found|"
+    r"inconclusive)\b",
+    re.IGNORECASE,
+)
 
 
 def validate_contract(value: Any, definition: str) -> None:
@@ -70,6 +85,17 @@ def _require_text(value: Any, path: str) -> None:
         raise ContractError(f"{path} must be non-empty text")
 
 
+def _validate_assessment_summary(summary: str) -> None:
+    inspection = summary.replace("\\_", "_").strip()
+    if (
+        _ASSESSMENT_IDENTIFIER_PATTERN.search(inspection)
+        or _LEADING_ASSESSMENT_RESTATEMENT_PATTERN.search(inspection)
+    ):
+        raise ContractError(
+            "overall_assessment.summary must explain the evidence without repeating the assessment status"
+        )
+
+
 def _require_positive_integer(value: Any, path: str) -> None:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise ContractError(f"{path} must be a positive integer")
@@ -95,6 +121,7 @@ def _validate_analysis_shape(analysis: Any) -> None:
     if assessment["status"] not in {"novelty_indicated", "novelty_not_found", "inconclusive"}:
         raise ContractError("overall_assessment.status is unsupported")
     _require_text(assessment["summary"], "overall_assessment.summary")
+    _validate_assessment_summary(assessment["summary"])
     features = analysis["features"]
     if not isinstance(features, list) or not features:
         raise ContractError("features must be a non-empty array")
@@ -180,6 +207,10 @@ def _unavailable(value: Any) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
 
 
+def _non_empty_text(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
 def _normalize_analysis_candidate(candidate: Any) -> Any:
     """Repair known nullable LLM output without weakening the public contract."""
     if not isinstance(candidate, dict):
@@ -208,6 +239,8 @@ def _normalize_analysis_candidate(candidate: Any) -> Any:
             if not isinstance(match, dict):
                 matches.append(match)
                 continue
+            if not _non_empty_text(match.get("reference_id")) and _non_empty_text(match.get("patent_id")):
+                match["reference_id"] = match["patent_id"].strip()
             if any(key not in match or _unavailable(match[key]) for key in required_match_fields):
                 continue
 

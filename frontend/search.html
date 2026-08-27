@@ -52,7 +52,7 @@
                         <div>
                             <label class="field-label" for="documentText">Technical disclosure</label>
                             <p class="field-hint" id="documentHelp">
-                                Describe the invention, its technical features, and the problem it addresses. You may also upload a plain-text document.
+                                Describe the invention with its technical features. You may also upload a plain-text document.
                             </p>
                         </div>
                         <!-- <span class="field-requirement">Required</span> -->
@@ -237,7 +237,7 @@
                         documentText.value = result;
 
                         if (result.trim()) {
-                            showStatus('Text file loaded. Review the disclosure before running the search.', 'info');
+                            hideStatus();
                         } else {
                             showStatus('The selected file is empty. Add disclosure text before running the search.', 'error');
                         }

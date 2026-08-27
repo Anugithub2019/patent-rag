@@ -2,7 +2,7 @@
   "schema_version": 2,
   "overall_assessment": {
     "status": "novelty_indicated",
-    "summary": "Novelty is indicated because no single retrieved reference discloses all analyzed features; this is limited to the retrieved references and is not a legal conclusion."
+    "summary": "No single retrieved reference discloses all analyzed features. This assessment is limited to the retrieved references and is not a legal conclusion."
   },
   "features": [
     {

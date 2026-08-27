@@ -142,7 +142,10 @@ async function fetchFromHashtag(documentText) {
         }
 
         try {
-            return processQueryResponse(responseData);
+            return {
+                parsed: processQueryResponse(responseData),
+                rawResponse: responseData
+            };
         } catch (error) {
             if (error instanceof ContractError) {
                 throw new InvalidReportError(error.message, responseData);
@@ -185,9 +188,12 @@ async function handleSubmitQuery(req, res) {
 
     // Kick off the async query
     fetchFromHashtag(data.text)
-        .then((parsed) => {
+        .then(({ parsed, rawResponse }) => {
             job.status = 'complete';
             job.data = parsed;
+            if (process.env.DEBUG_INVALID_REPORTS === 'true') {
+                job.rawResponse = rawResponse;
+            }
         })
         .catch((error) => {
             job.status = 'failed';
@@ -199,6 +205,31 @@ async function handleSubmitQuery(req, res) {
     setTimeout(() => jobs.delete(jobId), JOB_TTL);
 
     sendJson(res, 202, { job_id: jobId });
+}
+
+function handleGetRawResult(res, jobId) {
+    if (process.env.DEBUG_INVALID_REPORTS !== 'true') {
+        sendJson(res, 404, { error: 'Not found' });
+        return;
+    }
+
+    const job = jobs.get(jobId);
+    if (!job) {
+        sendJson(res, 404, { error: 'Job not found' });
+        return;
+    }
+
+    if (job.status !== 'complete') {
+        sendJson(res, 409, { error: 'Raw response is not available for this job' });
+        return;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(job, 'rawResponse')) {
+        sendJson(res, 404, { error: 'Raw response not found' });
+        return;
+    }
+
+    sendJson(res, 200, { upstream_response: job.rawResponse });
 }
 
 function handleGetResult(req, res, jobId) {
@@ -234,7 +265,7 @@ async function handleSearch(req, res) {
     }
 
     try {
-        const parsed = await fetchFromHashtag(data.text);
+        const { parsed } = await fetchFromHashtag(data.text);
         sendJson(res, 200, parsed);
     } catch (error) {
         const result = { error: error.message };
@@ -281,6 +312,13 @@ const server = createServer(async (req, res) => {
         // Async query submission (frontend uses this)
         if (req.method === 'POST' && url.pathname === '/api/query') {
             await handleSubmitQuery(req, res);
+            return;
+        }
+
+        // Expose successful raw Hashtag output only in explicitly enabled debug mode.
+        const rawResultMatch = url.pathname.match(/^\/api\/result\/([a-f0-9-]+)\/raw$/i);
+        if (req.method === 'GET' && rawResultMatch) {
+            handleGetRawResult(res, rawResultMatch[1]);
             return;
         }
 
