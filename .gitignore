@@ -21,6 +21,14 @@ public/
 # ===== Runtime data files =====
 upload_records.db
 
+# ===== Terraform local files =====
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!.tfvars.example
+tfplan
+
 # ===== Test =====
 tests/
 !tests/
