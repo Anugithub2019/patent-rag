@@ -398,6 +398,7 @@ The guard covers known application, ingestion, server, contract, script, deploym
 
 | Date | Change |
 |---|---|
+| 2026-09-07 | Removed a redundant loading-state eyebrow from the report page; the frontend flow and application architecture are unchanged. |
 | 2026-08-27 | Changed the assessment card from two columns to stacked result-and-explanation rows, removed the visible Reason heading and technical-disclosure qualifier, and renders only the mapped verdict in bold. |
 | 2026-08-26 | Separated the human-facing novelty result from its evidence-based reason while preserving Schema v2: prompts and validators keep result wording out of `summary`, the report derives result prose from `status`, and the Redis query-cache namespace advanced to v5. |
 | 2026-08-25 | Removed the transient success notification after loading a non-empty text file; file selection, validation, and application architecture are unchanged. |
